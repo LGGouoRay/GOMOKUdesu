@@ -71,6 +71,10 @@ Game::Game()
         }
     });
 
+    m_network.setOnRestartRequest([this]() {
+        resetGame();
+    });
+
     m_network.setOnDisconnect([this]() {
         m_pendingUndoRequest = false;
     });
@@ -319,7 +323,7 @@ void Game::updateConnecting(float dt) {
     }
 
     m_state = GameState::Menu;
-    m_connectErrorMessage = "\u52a0\u5165\u5931\u6557\uff0c\u8acb\u78ba\u8a8d\u662f\u5426\u6b63\u78ba\u5730\u6309\u4e0b\u78ba\u8a8d\u6309\u9215";
+    m_connectErrorMessage = L"加入失敗，請確認是否正確地按下確認按鈕";
     m_connectErrorTimer = 3.0f;
 }
 
@@ -367,6 +371,9 @@ void Game::initGameUI() {
 
     m_btnPlayAgain = std::make_unique<Button>(m_renderer.getFont(), "Play Again", sf::Vector2f(600.f - 100.f, 450.f), sf::Vector2f(200.f, 60.f));
     m_btnPlayAgain->setCallback([this]() {
+        if (isNetworkMode()) {
+            m_network.sendRestartRequest();
+        }
         resetGame();
         m_soundMgr.play(SoundEffect::Click);
     });
@@ -889,7 +896,7 @@ void Game::render() {
         m_window.draw(dim);
 
         if (m_renderer.isFontLoaded()) {
-            sf::Text statusText(m_renderer.getFont(), "\u52a0\u5165\u904a\u6232\u4e2d...", 42);
+            sf::Text statusText(m_renderer.getFont(), L"加入遊戲中...", 42);
             statusText.setFillColor(sf::Color::White);
             auto tBounds = statusText.getLocalBounds();
             statusText.setOrigin({ tBounds.position.x + tBounds.size.x / 2.f, tBounds.position.y + tBounds.size.y / 2.f });
