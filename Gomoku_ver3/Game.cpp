@@ -73,6 +73,28 @@ Game::Game()
 
     m_network.setOnDisconnect([this]() {
         m_pendingUndoRequest = false;
+        m_hostIsSavingLoading = false;
+    });
+
+    m_network.setOnHostStatusUpdate([this](bool isSavingOrLoading) {
+        m_hostIsSavingLoading = isSavingOrLoading;
+    });
+
+    m_network.setOnSyncGameState([this](const GameSaveData& data) {
+        m_currentTurn = static_cast<Cell>(data.currentTurn);
+        m_playMode = data.aiEnabled ? PlayMode::LocalPvAI : PlayMode::LocalPvP;
+        if (m_network.getStatus() == Network::Status::Connected) {
+            m_playMode = PlayMode::NetworkClient;
+        }
+
+        m_board.reset();
+        for (const auto& m : data.moveHistory) {
+            m_board.placeStone(m.row, m.col, m.color);
+        }
+
+        if (m_state != GameState::Playing) {
+            startTransition(GameState::Playing);
+        }
     });
 
     // 載入自訂鼠標紋理
@@ -150,8 +172,21 @@ void Game::updateTransition(float dt) {
         m_fadeAlpha += 600.0f * dt; 
         if (m_fadeAlpha >= 255.0f) {
             m_fadeAlpha = 255.0f;
+
+            if (m_playMode == PlayMode::NetworkHost) {
+                if (m_state != GameState::SaveLoad && m_nextState == GameState::SaveLoad) {
+                    m_network.sendHostStatusUpdate(true);
+                } else if (m_state == GameState::SaveLoad && m_nextState != GameState::SaveLoad) {
+                    m_network.sendHostStatusUpdate(false);
+                }
+            }
+
             m_state = m_nextState;
             m_fadeState = 2; // Fade In
+
+            if (m_state == GameState::Playing && m_btnToggleAIPtr) {
+                m_btnToggleAIPtr->setToggled(m_playMode == PlayMode::LocalPvAI);
+            }
         }
     } else if (m_fadeState == 2) { // fading in
         m_fadeAlpha -= 600.0f * dt;
@@ -172,6 +207,9 @@ void Game::drawTransition() {
 
 void Game::toggleAI() {
     m_playMode = (m_playMode == PlayMode::LocalPvAI) ? PlayMode::LocalPvP : PlayMode::LocalPvAI;
+    if (m_btnToggleAIPtr) {
+        m_btnToggleAIPtr->setToggled(m_playMode == PlayMode::LocalPvAI);
+    }
 }
 
 void Game::saveCurrentGame() {
@@ -354,6 +392,8 @@ void Game::initGameUI() {
         });
 
     auto btnToggleAI = std::make_unique<Button>(m_renderer.getFont(), "Toggle AI", sf::Vector2f(uiX, startY + 2 * gap), size);
+    btnToggleAI->setToggleMode(true);
+    m_btnToggleAIPtr = btnToggleAI.get();
     btnToggleAI->setCallback([this]() { toggleAI(); m_soundMgr.play(SoundEffect::Click); });
 
     auto btnSave = std::make_unique<Button>(m_renderer.getFont(), "Save Game", sf::Vector2f(uiX, startY + 3 * gap), size);
@@ -616,10 +656,15 @@ void Game::initSaveLoadUI() {
                 GameSaveData data;
                 if (SaveLoad::loadGame(filename, data)) {
                     m_currentTurn = static_cast<Cell>(data.currentTurn);
-                    m_playMode = data.aiEnabled ? PlayMode::LocalPvAI : PlayMode::LocalPvP;
+                    if (m_playMode != PlayMode::NetworkHost) {
+                        m_playMode = data.aiEnabled ? PlayMode::LocalPvAI : PlayMode::LocalPvP;
+                    }
                     m_board.reset();
                     for (const auto& m : data.moveHistory) {
                         m_board.placeStone(m.row, m.col, m.color);
+                    }
+                    if (m_playMode == PlayMode::NetworkHost) {
+                        m_network.sendSyncGameState(data);
                     }
                     startTransition(GameState::Playing);
                 }
@@ -783,9 +828,24 @@ void Game::update(float dt) {
         case MenuAction::JoinRoom:
             beginNetworkConnect(res.ipAddress, res.port, res.roomCode);
             break;
-        case MenuAction::ConnectLAN:
-            beginNetworkConnect(res.ipAddress, res.port, res.roomCode);
+        case MenuAction::ConnectLAN: {
+            std::string targetIP = res.ipAddress;
+            unsigned short targetPort = res.port;
+
+            if (!res.roomCode.empty()) {
+                auto rooms = m_network.getAvailableRooms();
+                for (const auto& room : rooms) {
+                    if (room.roomCode == res.roomCode) {
+                        targetIP = room.ip.toString();
+                        targetPort = room.port;
+                        break;
+                    }
+                }
+            }
+
+            beginNetworkConnect(targetIP, targetPort, res.roomCode);
             break;
+        }
         case MenuAction::Quit:
             m_window.close();
             break;
@@ -1139,6 +1199,19 @@ void Game::render() {
 
             m_btnUndoAccept->draw(m_window);
             m_btnUndoReject->draw(m_window);
+        }
+
+        if (m_playMode == PlayMode::NetworkClient && m_hostIsSavingLoading && m_renderer.isFontLoaded()) {
+            sf::RectangleShape overlay(sf::Vector2f(m_window.getSize()));
+            overlay.setFillColor(sf::Color(0, 0, 0, 150));
+            m_window.draw(overlay);
+
+            sf::Text waitText(m_renderer.getFont(), "Host is saving/loading, please wait...", 40);
+            waitText.setFillColor(sf::Color::White);
+            sf::FloatRect bounds = waitText.getLocalBounds();
+            waitText.setOrigin({ bounds.size.x / 2.f, bounds.size.y / 2.f });
+            waitText.setPosition({ m_window.getSize().x / 2.f, m_window.getSize().y / 2.f });
+            m_window.draw(waitText);
         }
     }
 

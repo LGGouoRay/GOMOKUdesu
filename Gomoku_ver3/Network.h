@@ -7,6 +7,7 @@
 #include <vector>
 #include <chrono>
 #include "Board.h"
+#include "SaveLoad.h"
 
 // ============================================================
 //  Network.h Network Communication (LAN / P2P)
@@ -23,7 +24,9 @@ enum class PacketType : std::uint8_t {
     ChatMessage,
     RestartRequest,
     RestartAccept,
-    GameStart
+    GameStart,
+    HostStatusUpdate,
+    SyncGameState
 };
 
 class Network {
@@ -69,6 +72,8 @@ public:
     void setOnConnect(std::function<void()> callback);
     void setOnDisconnect(std::function<void()> callback);
     void setOnGameStart(std::function<void()> callback);
+    void setOnHostStatusUpdate(std::function<void(bool)> callback);
+    void setOnSyncGameState(std::function<void(const GameSaveData&)> callback);
 
     void sendStonePlaced(int row, int col);
     void sendUndoRequest();
@@ -76,6 +81,8 @@ public:
     void sendRestartRequest();
     void sendRestartResponse(bool accepted);
     void sendGameStart();
+    void sendHostStatusUpdate(bool isSavingOrLoading);
+    void sendSyncGameState(const GameSaveData& data);
 
 private:
     Status m_status = Status::Disconnected;
@@ -97,6 +104,8 @@ private:
     std::function<void()> m_onConnect;
     std::function<void()> m_onDisconnect;
     std::function<void()> m_onGameStart;
+    std::function<void(bool)> m_onHostStatusUpdate;
+    std::function<void(const GameSaveData&)> m_onSyncGameState;
 
     // UDP Broadcasting
     sf::UdpSocket m_broadcastSocket;

@@ -9,9 +9,9 @@ struct Settings {
     bool soundMuted = false;
 
     bool timerEnabled = true;
-    float timerLimit = 30.f;
+    float timerLimit = 10.f;
 
-    
+
     bool undoEnabled = true;
     bool showLastMoveStatus = true;
     

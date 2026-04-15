@@ -301,9 +301,6 @@ void Network::receiveBroadcastPackets() {
         }
 
         bool isPrivate = (privateFlag != 0);
-        if (isPrivate) {
-            continue;
-        }
 
         bool found = false;
         for (auto& room : m_discoveredRooms) {
@@ -311,7 +308,7 @@ void Network::receiveBroadcastPackets() {
                 room.lastSeen = std::chrono::steady_clock::now();
                 room.roomName = roomName;
                 room.roomCode = roomCode;
-                room.isPrivate = false;
+                room.isPrivate = isPrivate;
                 found = true;
                 break;
             }
@@ -323,11 +320,11 @@ void Network::receiveBroadcastPackets() {
                 tcpPort,
                 roomName,
                 roomCode,
-                false,
+                isPrivate,
                 std::chrono::steady_clock::now()
             };
             m_discoveredRooms.push_back(newRoom);
-            std::cout << "[Network] Discovered public room: " << roomName << " at "
+            std::cout << "[Network] Discovered " << (isPrivate ? "private" : "public") << " room: " << roomName << " at "
                       << sender->toString() << ":" << tcpPort << "\n";
         }
     }
@@ -345,6 +342,8 @@ void Network::setOnRestartResponse(std::function<void(bool)> callback) { m_onRes
 void Network::setOnConnect(std::function<void()> callback) { m_onConnect = callback; }
 void Network::setOnDisconnect(std::function<void()> callback) { m_onDisconnect = callback; }
 void Network::setOnGameStart(std::function<void()> callback) { m_onGameStart = callback; }
+void Network::setOnHostStatusUpdate(std::function<void(bool)> callback) { m_onHostStatusUpdate = callback; }
+void Network::setOnSyncGameState(std::function<void(const GameSaveData&)> callback) { m_onSyncGameState = callback; }
 
 void Network::sendStonePlaced(int row, int col) {
     if (m_status != Status::Connected || !m_isAuthenticated) return;
@@ -388,6 +387,30 @@ void Network::sendGameStart() {
     m_socket.send(packet);
 }
 
+void Network::sendHostStatusUpdate(bool isSavingOrLoading) {
+    if (m_status != Status::Connected || !m_isAuthenticated) return;
+    sf::Packet packet;
+    packet << static_cast<std::uint8_t>(PacketType::HostStatusUpdate) << static_cast<std::uint8_t>(isSavingOrLoading ? 1 : 0);
+    m_socket.send(packet);
+}
+
+void Network::sendSyncGameState(const GameSaveData& data) {
+    if (m_status != Status::Connected || !m_isAuthenticated) return;
+    sf::Packet packet;
+    packet << static_cast<std::uint8_t>(PacketType::SyncGameState);
+    packet << static_cast<std::int32_t>(data.currentTurn) << static_cast<std::uint8_t>(data.timerEnabled ? 1 : 0) << data.timerLimit << static_cast<std::uint8_t>(data.undoEnabled ? 1 : 0) << static_cast<std::uint8_t>(data.aiEnabled ? 1 : 0);
+    packet << static_cast<std::uint32_t>(data.moveHistory.size());
+    for (const auto& m : data.moveHistory) {
+        packet << static_cast<std::int32_t>(m.row) << static_cast<std::int32_t>(m.col) << static_cast<std::int32_t>(m.color);
+    }
+    for (int r = 0; r < BOARD_SIZE; ++r) {
+        for (int c = 0; c < BOARD_SIZE; ++c) {
+            packet << static_cast<std::int32_t>(data.grid[r][c]);
+        }
+    }
+    m_socket.send(packet);
+}
+
 void Network::handlePacket(sf::Packet& packet) {
     std::uint8_t typeRaw;
     if (!(packet >> typeRaw)) return;
@@ -405,7 +428,7 @@ void Network::handlePacket(sf::Packet& packet) {
                 break;
             }
 
-            const bool accepted = m_roomCode.empty() ? true : (code == m_roomCode);
+            const bool accepted = m_roomCode.empty() ? true : (code == m_roomCode || code.empty());
 
             sf::Packet response;
             response << static_cast<std::uint8_t>(accepted ? PacketType::JoinAccept : PacketType::JoinReject);
@@ -480,6 +503,47 @@ void Network::handlePacket(sf::Packet& packet) {
             if (!m_isAuthenticated) break;
             if (m_onGameStart) m_onGameStart();
             break;
+        case PacketType::HostStatusUpdate: {
+            if (!m_isAuthenticated) break;
+            std::uint8_t flag;
+            if (packet >> flag && m_onHostStatusUpdate) {
+                m_onHostStatusUpdate(flag != 0);
+            }
+            break;
+        }
+        case PacketType::SyncGameState: {
+            if (!m_isAuthenticated) break;
+            GameSaveData data;
+            std::int32_t currentTurn;
+            std::uint8_t timerEnabled;
+            std::uint8_t undoEnabled;
+            std::uint8_t aiEnabled;
+            std::uint32_t historySize;
+            if (packet >> currentTurn >> timerEnabled >> data.timerLimit >> undoEnabled >> aiEnabled >> historySize) {
+                data.currentTurn = currentTurn;
+                data.timerEnabled = (timerEnabled != 0);
+                data.undoEnabled = (undoEnabled != 0);
+                data.aiEnabled = (aiEnabled != 0);
+                for (std::uint32_t i = 0; i < historySize; ++i) {
+                    Move m;
+                    std::int32_t row, col, color;
+                    packet >> row >> col >> color;
+                    m.row = row; m.col = col; m.color = static_cast<Cell>(color);
+                    data.moveHistory.push_back(m);
+                }
+                for (int r = 0; r < BOARD_SIZE; ++r) {
+                    for (int c = 0; c < BOARD_SIZE; ++c) {
+                        std::int32_t cell;
+                        packet >> cell;
+                        data.grid[r][c] = cell;
+                    }
+                }
+                if (m_onSyncGameState) {
+                    m_onSyncGameState(data);
+                }
+            }
+            break;
+        }
         default:
             break;
     }
