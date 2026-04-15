@@ -1,0 +1,13 @@
+# Visual Studio 暫存檔案與目錄
+.vs/
+*.user
+*.suo
+*.db
+*.opendb
+*.VC.db
+
+# 編譯輸出的目錄 (根據您的專案結構可以自行調整)
+x64/
+x86/
+Debug/
+Release/
