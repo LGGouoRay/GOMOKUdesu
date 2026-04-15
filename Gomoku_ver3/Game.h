@@ -86,6 +86,7 @@ private:
     Cell m_currentTurn = Cell::BLACK;
     Cell m_myNetworkColor = Cell::BLACK;
     Cell m_winner = Cell::EMPTY;
+    bool m_hostIsSavingLoading = false;
 
     // UI positions
     sf::Vector2f m_boardOffset{100.f, 100.f};
@@ -97,6 +98,7 @@ private:
     std::unique_ptr<Button> m_btnPlayAgain;
     std::unique_ptr<Button> m_btnUndoAccept;
     std::unique_ptr<Button> m_btnUndoReject;
+    Button* m_btnToggleAIPtr = nullptr;
     bool m_pendingUndoRequest = false;
     Replay m_replay;
 

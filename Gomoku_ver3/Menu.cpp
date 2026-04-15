@@ -62,8 +62,9 @@ void Menu::initLocalButtons(sf::RenderWindow& window) {
     float gap = 80.f;
     sf::Vector2f size(300.f, 50.f);
 
-    auto btnAI = std::make_unique<Button>(m_font, "AI Opponent: OFF", sf::Vector2f(cx - size.x/2, startY), size);
+    auto btnAI = std::make_unique<Button>(m_font, "AI Opponent: ON", sf::Vector2f(cx - size.x/2, startY), size);
     btnAI->setToggleMode(true);
+    btnAI->setToggled(true);
     btnAI->setCallback([this]() {
         m_aiToggleBtn->setLabel(m_aiToggleBtn->isToggled() ? "AI Opponent: ON" : "AI Opponent: OFF");
     });
@@ -131,8 +132,10 @@ void Menu::initSettingsButtons(sf::RenderWindow& window) {
     btnTimer->setToggleMode(true);
     btnTimer->setCallback([btnTimerPtr = btnTimer.get()]() {
         getGameSettings().timerEnabled = btnTimerPtr->isToggled();
-        btnTimerPtr->setLabel(btnTimerPtr->isToggled() ? "Timer: ON (30s)" : "Timer: OFF");
+        btnTimerPtr->setLabel(btnTimerPtr->isToggled() ? "Timer: ON (10s)" : "Timer: OFF");
     });
+    btnTimer->setToggled(getGameSettings().timerEnabled);
+    btnTimer->setLabel(getGameSettings().timerEnabled ? "Timer: ON (10s)" : "Timer: OFF");
 
     auto btnUndo = std::make_unique<Button>(m_font, "Undo: ON", sf::Vector2f(cx - size.x/2, startY + gap), size);
     btnUndo->setToggleMode(true);
@@ -473,13 +476,17 @@ void Menu::initRoomListButtons(sf::RenderWindow& window, const std::vector<Netwo
     float btnHeight = 60.f;
     float gap = 75.f;
 
+    int validRoomCount = 0;
     // Create buttons for each discovered room
     for (size_t i = 0; i < rooms.size(); ++i) {
-        std::string btnLabel = std::string(rooms[i].isPrivate ? "[Private] " : "[Public] ") +
+        if (rooms[i].isPrivate) {
+            continue;
+        }
+        std::string btnLabel = std::string("[Public] ") +
                                rooms[i].roomName +
                                " [Code: " + rooms[i].roomCode + "] (" +
                                rooms[i].ip.toString() + ":" + std::to_string(rooms[i].port) + ")";
-        auto btn = std::make_unique<Button>(m_font, btnLabel, sf::Vector2f(startX, startY + i * gap), sf::Vector2f(btnWidth, btnHeight));
+        auto btn = std::make_unique<Button>(m_font, btnLabel, sf::Vector2f(startX, startY + validRoomCount * gap), sf::Vector2f(btnWidth, btnHeight));
 
         const auto& room = rooms[i];
         btn->setCallback([this, room]() {
@@ -490,10 +497,11 @@ void Menu::initRoomListButtons(sf::RenderWindow& window, const std::vector<Netwo
         });
 
         m_roomListButtons.push_back(std::move(btn));
+        validRoomCount++;
     }
 
     // Back button - positioned below the room list
-    auto btnBack = std::make_unique<Button>(m_font, "Back", sf::Vector2f(startX, startY + static_cast<float>(rooms.size()) * gap + 30.f), sf::Vector2f(btnWidth, btnHeight));
+    auto btnBack = std::make_unique<Button>(m_font, "Back", sf::Vector2f(startX, startY + validRoomCount * gap + 30.f), sf::Vector2f(btnWidth, btnHeight));
     btnBack->setCallback([this]() { m_state = MenuState::Multiplayer; });
     m_roomListButtons.push_back(std::move(btnBack));
 
@@ -523,12 +531,16 @@ void Menu::initManualConnectUI() {
 
     auto btnConnect = std::make_unique<Button>(m_font, "Connect", sf::Vector2f(cx - size.x/2, buttonStartY), size);
     btnConnect->setCallback([this]() {
-        if (!m_inputIPAddress.empty()) {
+        if (!m_inputIPAddress.empty() || !m_inputRoomCode.empty()) {
             m_pendingResult.action = MenuAction::ConnectLAN;
             m_pendingResult.ipAddress = m_inputIPAddress;
             m_pendingResult.roomCode = m_inputRoomCode;
             try {
-                m_pendingResult.port = static_cast<unsigned short>(std::stoi(m_inputPort));
+                if (!m_inputPort.empty()) {
+                    m_pendingResult.port = static_cast<unsigned short>(std::stoi(m_inputPort));
+                } else {
+                    m_pendingResult.port = 55001;
+                }
             } catch (...) {
                 m_pendingResult.port = 55001;
             }
