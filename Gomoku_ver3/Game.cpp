@@ -300,18 +300,18 @@ void Game::updateGameButtonStates() {
         bool canCast = (!isNetworkMode() || m_currentTurn == m_myNetworkColor) && m_board.getMoveCount() > 0;
 
         if (m_gameButtons.size() > 6 && m_gameButtons[6]) {
-            bool ready = (m_skillPoints[idToDisplay] >= 10);
-            m_gameButtons[6]->setLabel(ready ? "Meteor Strike(RDY)" : "Meteor Strike(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/10)");
+            bool ready = (m_skillPoints[idToDisplay] >= 7);
+            m_gameButtons[6]->setLabel(ready ? "Meteor Strike(RDY)" : "Meteor Strike(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/7)");
             m_gameButtons[6]->setGlowingEffect(ready && canCast, sf::Color(255, 100, 100), Button::GlowEffect::Particles);
         }
         if (m_gameButtons.size() > 7 && m_gameButtons[7]) {
-            bool ready = (m_skillPoints[idToDisplay] >= 8);
-            m_gameButtons[7]->setLabel(ready ? "Lightning Strike(RDY)" : "Lightning Strike(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/8)");
+            bool ready = (m_skillPoints[idToDisplay] >= 15);
+            m_gameButtons[7]->setLabel(ready ? "Lightning Strike(RDY)" : "Lightning Strike(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/15)");
             m_gameButtons[7]->setGlowingEffect(ready && canCast, sf::Color(200, 100, 255), Button::GlowEffect::Lightning);
         }
         if (m_gameButtons.size() > 8 && m_gameButtons[8]) {
-            bool ready = (m_skillPoints[idToDisplay] >= 15);
-            m_gameButtons[8]->setLabel(ready ? "Lightning Storm(RDY)" : "Lightning Storm(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/15)");
+            bool ready = (m_skillPoints[idToDisplay] >= 5);
+            m_gameButtons[8]->setLabel(ready ? "Lightning Storm(RDY)" : "Lightning Storm(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/5)");
             m_gameButtons[8]->setGlowingEffect(ready && canCast, sf::Color(255, 200, 100), Button::GlowEffect::Storm);
         }
     }
@@ -331,13 +331,13 @@ bool Game::applyUndoMove() {
     }
 
     if (m_gameButtons.size() > 6 && m_gameButtons[6]) {
-        m_gameButtons[6]->setLabel(m_skillPoints[id] >= 10 ? "Meteor Strike(RDY)" : "Meteor Strike(SP:" + std::to_string(m_skillPoints[id]) + "/10)");
+        m_gameButtons[6]->setLabel(m_skillPoints[id] >= 7 ? "Meteor Strike(RDY)" : "Meteor Strike(SP:" + std::to_string(m_skillPoints[id]) + "/7)");
     }
     if (m_gameButtons.size() > 7 && m_gameButtons[7]) {
-        m_gameButtons[7]->setLabel(m_skillPoints[id] >= 8 ? "Lightning Strike(RDY)" : "Lightning Strike(SP:" + std::to_string(m_skillPoints[id]) + "/8)");
+        m_gameButtons[7]->setLabel(m_skillPoints[id] >= 15 ? "Lightning Strike(RDY)" : "Lightning Strike(SP:" + std::to_string(m_skillPoints[id]) + "/15)");
     }
     if (m_gameButtons.size() > 8 && m_gameButtons[8]) {
-        m_gameButtons[8]->setLabel(m_skillPoints[id] >= 15 ? "Lightning Storm(RDY)" : "Lightning Storm(SP:" + std::to_string(m_skillPoints[id]) + "/15)");
+        m_gameButtons[8]->setLabel(m_skillPoints[id] >= 5 ? "Lightning Storm(RDY)" : "Lightning Storm(SP:" + std::to_string(m_skillPoints[id]) + "/5)");
     }
 
     if (m_state == GameState::GameOver) {
@@ -536,12 +536,12 @@ void Game::initGameUI() {
 
     sf::Vector2f skillSize(250.f, 60.f);
 
-    auto btnSkill1 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Meteor Strike(SP:0/10)")), sf::Vector2f(uiX, startY + 3 * gap), skillSize, 18);
+    auto btnSkill1 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Meteor Strike(SP:0/7)")), sf::Vector2f(uiX, startY + 3 * gap), skillSize, 18);
     btnSkill1->setColors(sf::Color(200, 50, 50), sf::Color(255, 100, 100), sf::Color(150, 30, 30));
     btnSkill1->setCallback([this]() {
         if (!m_isExperimentalMode) return;
         int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
-        if (m_skillPoints[id] < 10) return;
+        if (m_skillPoints[id] < 7) return;
         if (m_board.getMoveCount() == 0) return;
         if (isNetworkMode() && m_currentTurn != m_myNetworkColor) return;
 
@@ -561,12 +561,12 @@ void Game::initGameUI() {
     });
     m_gameButtons.push_back(std::move(btnSkill1));
 
-    auto btnSkill2 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Lightning Strike(SP:0/8)")), sf::Vector2f(uiX, startY + 4 * gap), skillSize, 18);
+    auto btnSkill2 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Lightning Strike(SP:0/15)")), sf::Vector2f(uiX, startY + 4 * gap), skillSize, 18);
     btnSkill2->setColors(sf::Color(150, 50, 200), sf::Color(200, 100, 255), sf::Color(100, 30, 150));
     btnSkill2->setCallback([this]() {
         if (!m_isExperimentalMode) return;
         int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
-        if (m_skillPoints[id] < 8) return;
+        if (m_skillPoints[id] < 15) return;
         if (isNetworkMode() && m_currentTurn != m_myNetworkColor) return;
 
         std::vector<sf::Vector2i> oppStones;
@@ -591,12 +591,12 @@ void Game::initGameUI() {
     });
     m_gameButtons.push_back(std::move(btnSkill2));
 
-    auto btnSkill3 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Lightning Storm(SP:0/15)")), sf::Vector2f(uiX, startY + 5 * gap), skillSize, 18);
+    auto btnSkill3 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Lightning Storm(SP:0/5)")), sf::Vector2f(uiX, startY + 5 * gap), skillSize, 18);
     btnSkill3->setColors(sf::Color(200, 150, 50), sf::Color(255, 200, 100), sf::Color(150, 100, 30));
     btnSkill3->setCallback([this]() {
         if (!m_isExperimentalMode) return;
         int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
-        if (m_skillPoints[id] < 15) return;
+        if (m_skillPoints[id] < 5) return;
         if (isNetworkMode() && m_currentTurn != m_myNetworkColor) return;
 
         std::vector<sf::Vector2i> oppStones;
@@ -866,7 +866,7 @@ void Game::applySkill(int skillId, int playerId, const std::vector<sf::Vector2i>
             m_state = GameState::Playing;
             m_winner = Cell::EMPTY;
         }
-        m_skillPoints[playerId] -= 10;
+        m_skillPoints[playerId] -= 7;
         switchTurn();
     } else if (skillId == 2) {
         m_soundMgr.play(SoundEffect::Start);
@@ -875,7 +875,7 @@ void Game::applySkill(int skillId, int playerId, const std::vector<sf::Vector2i>
                 m_renderer.addLightningStormAnimation(target.y, target.x);
             }
         }
-        m_skillPoints[playerId] -= 8;
+        m_skillPoints[playerId] -= 15;
         switchTurn();
     } else if (skillId == 3) {
         m_soundMgr.play(SoundEffect::Start);
@@ -890,7 +890,7 @@ void Game::applySkill(int skillId, int playerId, const std::vector<sf::Vector2i>
                 }
             }
         }
-        m_skillPoints[playerId] -= 15;
+        m_skillPoints[playerId] -= 5;
         switchTurn();
     }
 }
@@ -1211,15 +1211,15 @@ void Game::update(float dt) {
             if (m_isExperimentalMode) {
                 int aiId = (m_currentTurn == Cell::BLACK) ? 0 : 1;
                 bool skillUsed = false;
-                if (!skillUsed && m_skillPoints[aiId] >= 15 && (rand() % 100 < 30) && m_gameButtons.size() > 8 && m_gameButtons[8]) {
+                if (!skillUsed && m_skillPoints[aiId] >= 5 && (rand() % 100 < 30) && m_gameButtons.size() > 8 && m_gameButtons[8]) {
                     m_gameButtons[8]->triggerCallback();
                     skillUsed = true;
                 }
-                if (!skillUsed && m_skillPoints[aiId] >= 10 && (rand() % 100 < 30) && m_gameButtons.size() > 6 && m_gameButtons[6]) {
+                if (!skillUsed && m_skillPoints[aiId] >= 7 && (rand() % 100 < 30) && m_gameButtons.size() > 6 && m_gameButtons[6]) {
                     m_gameButtons[6]->triggerCallback();
                     skillUsed = true;
                 }
-                if (!skillUsed && m_skillPoints[aiId] >= 8 && (rand() % 100 < 30) && m_gameButtons.size() > 7 && m_gameButtons[7]) {
+                if (!skillUsed && m_skillPoints[aiId] >= 15 && (rand() % 100 < 30) && m_gameButtons.size() > 7 && m_gameButtons[7]) {
                     m_gameButtons[7]->triggerCallback();
                     skillUsed = true;
                 }
