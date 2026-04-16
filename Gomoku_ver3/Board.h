@@ -1,4 +1,4 @@
-﻿#pragma execution_character_set("utf-8")
+#pragma execution_character_set("utf-8")
 #pragma once
 #include <vector>
 #include <string>
@@ -29,6 +29,7 @@ public:
 
 
     bool undoMove();
+    bool removeStone(int row, int col);
 
 
     Cell checkWin() const;
@@ -52,6 +53,7 @@ public:
 
     void setGrid(const std::array<std::array<Cell, BOARD_SIZE>, BOARD_SIZE>& grid);
     void setMoveHistory(const std::vector<Move>& history);
+    bool changeStoneColor(int row, int col, Cell newColor);
 
 
     static std::string moveToString(const Move& m);

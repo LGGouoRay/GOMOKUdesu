@@ -40,6 +40,22 @@ bool Board::undoMove() {
     return true;
 }
 
+bool Board::removeStone(int row, int col) {
+    if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE)
+        return false;
+    if (m_grid[row][col] == Cell::EMPTY)
+        return false;
+
+    m_grid[row][col] = Cell::EMPTY;
+    // Remove from history if it exists
+    auto it = std::find_if(m_moveHistory.begin(), m_moveHistory.end(),
+                           [row, col](const Move& m) { return m.row == row && m.col == col; });
+    if (it != m_moveHistory.end()) {
+        m_moveHistory.erase(it);
+    }
+    return true;
+}
+
 Cell Board::checkWin() const {
     int dummyRow[5], dummyCol[5];
     for (int r = 0; r < BOARD_SIZE; ++r) {
@@ -101,6 +117,20 @@ void Board::setGrid(const std::array<std::array<Cell, BOARD_SIZE>, BOARD_SIZE>& 
 
 void Board::setMoveHistory(const std::vector<Move>& history) {
     m_moveHistory = history;
+}
+
+bool Board::changeStoneColor(int row, int col, Cell newColor) {
+    if (row < 0 || row >= BOARD_SIZE || col < 0 || col >= BOARD_SIZE) return false;
+    if (m_grid[row][col] == Cell::EMPTY) return false;
+    m_grid[row][col] = newColor;
+
+    // Update history
+    auto it = std::find_if(m_moveHistory.begin(), m_moveHistory.end(),
+                           [row, col](const Move& m) { return m.row == row && m.col == col; });
+    if (it != m_moveHistory.end()) {
+        it->color = newColor;
+    }
+    return true;
 }
 
 std::string Board::moveToString(const Move& m) {

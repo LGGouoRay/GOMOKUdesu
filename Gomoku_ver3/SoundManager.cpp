@@ -3,10 +3,6 @@
 #include <iostream>
 #include <filesystem>
 
-
-
-
-
 SoundManager::SoundManager() {}
 
 void SoundManager::loadAll(const std::string& assetsPath) {

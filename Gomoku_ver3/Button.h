@@ -3,7 +3,7 @@
 #include <SFML/Graphics.hpp>
 #include <functional>
 #include <string>
-
+#include <vector>
 
 
 
@@ -16,8 +16,7 @@ public:
 
     void draw(sf::RenderWindow& window) const;
 
-
-    void update(sf::Vector2f mousePos);
+    void update(sf::Vector2f mousePos, float dt = 0.0f);
 
     bool isClicked(sf::Vector2f mousePos) const;
 
@@ -29,6 +28,7 @@ public:
 
 
     void setColors(sf::Color normal, sf::Color hover, sf::Color pressed);
+    void setToggledColor(sf::Color toggled);
     void setTextColor(sf::Color color);
 
 
@@ -44,6 +44,14 @@ public:
     void setPosition(sf::Vector2f pos);
     sf::Vector2f getPosition() const;
     sf::Vector2f getSize() const;
+
+    enum class GlowEffect {
+        Particles,
+        Lightning,
+        Storm
+    };
+
+    void setGlowingEffect(bool enabled, sf::Color color = sf::Color::Transparent, GlowEffect effect = GlowEffect::Particles);
 
 private:
     sf::RectangleShape m_shape;
@@ -61,6 +69,30 @@ private:
     bool m_isToggleMode = false;
     bool m_isToggled = false;
     bool m_isEnabled = true;
+
+    struct UIParticle {
+        sf::Vector2f pos;
+        sf::Vector2f vel;
+        float life;
+        float maxLife;
+        sf::Color color;
+        float rotation; // added for more advanced effects
+        float size;     // added for more advanced effects
+    };
+    std::vector<UIParticle> m_particles;
+
+    struct LightningSegment {
+        sf::VertexArray lines;
+        float life;
+        float maxLife;
+    };
+    std::vector<LightningSegment> m_lightnings;
+
+    bool m_isGlowing = false;
+    sf::Color m_glowColor = sf::Color::Transparent;
+    GlowEffect m_glowEffect = GlowEffect::Particles;
+    float m_particleTimer = 0.f;
+    float m_effectTimer = 0.f;
 
     void centerText();
 };

@@ -38,9 +38,7 @@ bool Network::host(unsigned short port, const std::string& roomName, bool isPriv
               << (m_isPrivateRoom ? " [Private]" : " [Public]")
               << " code=" << m_roomCode << "\n";
 
-    if (!m_isPrivateRoom) {
-        startBroadcasting(roomName, port, 55002);
-    }
+    startBroadcasting(roomName, port, 55002);
 
     return true;
 }
@@ -164,7 +162,7 @@ void Network::update() {
                             m_status = Status::Hosting;
                             m_selector.add(m_listener);
 
-                            if (!m_isPrivateRoom && !m_isBroadcasting) {
+                            if (!m_isBroadcasting) {
                                 startBroadcasting(m_roomName, m_tcpPort, m_broadcastPort);
                             }
 
@@ -334,16 +332,101 @@ std::vector<Network::RoomInfo> Network::getAvailableRooms() const {
     return m_discoveredRooms;
 }
 
-void Network::setOnStonePlaced(std::function<void(int, int)> callback) { m_onStonePlaced = callback; }
-void Network::setOnUndoRequest(std::function<void()> callback) { m_onUndoRequest = callback; }
-void Network::setOnUndoResponse(std::function<void(bool)> callback) { m_onUndoResponse = callback; }
-void Network::setOnRestartRequest(std::function<void()> callback) { m_onRestartRequest = callback; }
-void Network::setOnRestartResponse(std::function<void(bool)> callback) { m_onRestartResponse = callback; }
-void Network::setOnConnect(std::function<void()> callback) { m_onConnect = callback; }
-void Network::setOnDisconnect(std::function<void()> callback) { m_onDisconnect = callback; }
-void Network::setOnGameStart(std::function<void()> callback) { m_onGameStart = callback; }
-void Network::setOnHostStatusUpdate(std::function<void(bool)> callback) { m_onHostStatusUpdate = callback; }
-void Network::setOnSyncGameState(std::function<void(const GameSaveData&)> callback) { m_onSyncGameState = callback; }
+void Network::setOnStonePlaced(std::function<void(int, int)> callback) {
+    m_onStonePlaced = callback;
+}
+
+void Network::setOnUndoRequest(std::function<void()> callback) {
+    m_onUndoRequest = callback;
+}
+
+void Network::setOnUndoResponse(std::function<void(bool accepted)> callback) {
+    m_onUndoResponse = callback;
+}
+
+void Network::setOnRestartRequest(std::function<void()> callback) {
+    m_onRestartRequest = callback;
+}
+
+void Network::setOnRestartResponse(std::function<void(bool accepted)> callback) {
+    m_onRestartResponse = callback;
+}
+
+void Network::setOnConnect(std::function<void()> callback) {
+    m_onConnect = callback;
+}
+
+void Network::setOnDisconnect(std::function<void()> callback) {
+    m_onDisconnect = callback;
+}
+
+void Network::setOnGameStart(std::function<void(bool)> callback) {
+    m_onGameStart = callback;
+}
+
+void Network::setOnHostStatusUpdate(std::function<void(bool)> callback) {
+    m_onHostStatusUpdate = callback;
+}
+
+void Network::setOnSyncGameState(std::function<void(const GameSaveData&)> callback) {
+    m_onSyncGameState = callback;
+}
+
+void Network::setOnUseSkill(std::function<void(int, const std::vector<sf::Vector2i>&)> callback) {
+    m_onUseSkill = callback;
+}
+
+void Network::setOnChatMessage(std::function<void(int)> callback) {
+    m_onChatMessage = callback;
+}
+
+void Network::sendHostStatusUpdate(bool isSavingOrLoading) {
+    if (m_status == Status::Connected) {
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(PacketType::HostStatusUpdate) << isSavingOrLoading;
+        m_socket.send(packet);
+    }
+}
+
+void Network::sendSyncGameState(const GameSaveData& data) {
+    if (m_status == Status::Connected) {
+        sf::Packet packet;
+        packet << static_cast<std::uint8_t>(PacketType::SyncGameState)
+            << data.currentTurn
+            << data.timerEnabled
+            << data.timerLimit
+            << data.undoEnabled
+            << data.aiEnabled;
+        packet << static_cast<std::uint32_t>(data.moveHistory.size());
+        for (const auto& m : data.moveHistory) {
+            packet << m.row << m.col << static_cast<int>(m.color);
+        }
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                packet << data.grid[r][c];
+            }
+        }
+        m_socket.send(packet);
+    }
+}
+
+void Network::sendUseSkill(int skillId, const std::vector<sf::Vector2i>& targets) {
+    if (m_status != Status::Connected || !m_isAuthenticated) return;
+    sf::Packet packet;
+    packet << static_cast<std::uint8_t>(PacketType::UseSkill) << static_cast<std::int32_t>(skillId);
+    packet << static_cast<std::uint32_t>(targets.size());
+    for (const auto& t : targets) {
+        packet << static_cast<std::int32_t>(t.x) << static_cast<std::int32_t>(t.y);
+    }
+    m_socket.send(packet);
+}
+
+void Network::sendChatMessage(int emojiId) {
+    if (m_status != Status::Connected || !m_isAuthenticated) return;
+    sf::Packet packet;
+    packet << static_cast<std::uint8_t>(PacketType::ChatMessage) << static_cast<std::int32_t>(emojiId);
+    m_socket.send(packet);
+}
 
 void Network::sendStonePlaced(int row, int col) {
     if (m_status != Status::Connected || !m_isAuthenticated) return;
@@ -380,34 +463,10 @@ void Network::sendRestartResponse(bool accepted) {
     m_socket.send(packet);
 }
 
-void Network::sendGameStart() {
+void Network::sendGameStart(bool isExperimental) {
     if (m_status != Status::Connected || !m_isAuthenticated) return;
     sf::Packet packet;
-    packet << static_cast<std::uint8_t>(PacketType::GameStart);
-    m_socket.send(packet);
-}
-
-void Network::sendHostStatusUpdate(bool isSavingOrLoading) {
-    if (m_status != Status::Connected || !m_isAuthenticated) return;
-    sf::Packet packet;
-    packet << static_cast<std::uint8_t>(PacketType::HostStatusUpdate) << static_cast<std::uint8_t>(isSavingOrLoading ? 1 : 0);
-    m_socket.send(packet);
-}
-
-void Network::sendSyncGameState(const GameSaveData& data) {
-    if (m_status != Status::Connected || !m_isAuthenticated) return;
-    sf::Packet packet;
-    packet << static_cast<std::uint8_t>(PacketType::SyncGameState);
-    packet << static_cast<std::int32_t>(data.currentTurn) << static_cast<std::uint8_t>(data.timerEnabled ? 1 : 0) << data.timerLimit << static_cast<std::uint8_t>(data.undoEnabled ? 1 : 0) << static_cast<std::uint8_t>(data.aiEnabled ? 1 : 0);
-    packet << static_cast<std::uint32_t>(data.moveHistory.size());
-    for (const auto& m : data.moveHistory) {
-        packet << static_cast<std::int32_t>(m.row) << static_cast<std::int32_t>(m.col) << static_cast<std::int32_t>(m.color);
-    }
-    for (int r = 0; r < BOARD_SIZE; ++r) {
-        for (int c = 0; c < BOARD_SIZE; ++c) {
-            packet << static_cast<std::int32_t>(data.grid[r][c]);
-        }
-    }
+    packet << static_cast<std::uint8_t>(PacketType::GameStart) << isExperimental;
     m_socket.send(packet);
 }
 
@@ -491,6 +550,14 @@ void Network::handlePacket(sf::Packet& packet) {
             if (!m_isAuthenticated) break;
             if (m_onUndoResponse) m_onUndoResponse(false);
             break;
+        case PacketType::ChatMessage: {
+            if (!m_isAuthenticated) break;
+            std::int32_t emojiId;
+            if (packet >> emojiId && m_onChatMessage) {
+                m_onChatMessage(emojiId);
+            }
+            break;
+        }
         case PacketType::RestartRequest:
             if (!m_isAuthenticated) break;
             if (m_onRestartRequest) m_onRestartRequest();
@@ -499,10 +566,14 @@ void Network::handlePacket(sf::Packet& packet) {
             if (!m_isAuthenticated) break;
             if (m_onRestartResponse) m_onRestartResponse(true);
             break;
-        case PacketType::GameStart:
+        case PacketType::GameStart: {
             if (!m_isAuthenticated) break;
-            if (m_onGameStart) m_onGameStart();
+            bool isExp = false;
+            if (packet >> isExp && m_onGameStart) {
+                m_onGameStart(isExp);
+            }
             break;
+        }
         case PacketType::HostStatusUpdate: {
             if (!m_isAuthenticated) break;
             std::uint8_t flag;
@@ -540,6 +611,24 @@ void Network::handlePacket(sf::Packet& packet) {
                 }
                 if (m_onSyncGameState) {
                     m_onSyncGameState(data);
+                }
+            }
+            break;
+        }
+        case PacketType::UseSkill: {
+            if (!m_isAuthenticated) break;
+            std::int32_t skillId;
+            std::uint32_t targetCount;
+            if (packet >> skillId >> targetCount) {
+                std::vector<sf::Vector2i> targets;
+                bool ok = true;
+                for (std::uint32_t i = 0; i < targetCount; ++i) {
+                    std::int32_t tx, ty;
+                    if (!(packet >> tx >> ty)) { ok = false; break; }
+                    targets.push_back({tx, ty});
+                }
+                if (ok && m_onUseSkill) {
+                    m_onUseSkill(static_cast<int>(skillId), targets);
                 }
             }
             break;

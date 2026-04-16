@@ -8,7 +8,12 @@
 
 
 
+
 Renderer::Renderer() {
+}
+
+Renderer::Renderer(const std::string& assetsPath) {
+    loadAssets(assetsPath);
 }
 
 void Renderer::loadAssets(const std::string& assetsPath) {
@@ -164,10 +169,112 @@ void Renderer::updateAnimations(float dt) {
             ++it;
         }
     }
+
+    for (auto it = m_particles.begin(); it != m_particles.end(); ) {
+        it->pos += it->vel * dt;
+        it->life -= dt;
+        if (it->life <= 0.0f) {
+            it = m_particles.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (auto it = m_ripples.begin(); it != m_ripples.end(); ) {
+        it->currentRadius += (it->maxRadius / it->maxLife) * dt;
+        it->life -= dt;
+        if (it->life <= 0.0f) {
+            it = m_ripples.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    for (auto it = m_lightningStorms.begin(); it != m_lightningStorms.end(); ) {
+        it->life -= dt;
+        if (it->life <= 0.0f) {
+            it = m_lightningStorms.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void Renderer::addStoneAnimation(int r, int c) {
     m_animations.push_back({r, c, 0.5f}); 
+}
+
+void Renderer::addFireAnimation(int r, int c) {
+    for (int i = 0; i < 40; ++i) {
+        float angle = (rand() % 360) * 3.14159f / 180.f;
+        float speed = 0.2f + (rand() % 15) / 10.f; // Cells per second
+        float life = 0.5f + (rand() % 10) / 20.f; // 0.5 to 1.0 seconds
+        float scale = 0.8f + (rand() % 5) / 10.f;
+        sf::Color color = (rand() % 2 == 0) ? sf::Color(255, 100, 0) : sf::Color(255, 50, 0); // Orange/Red
+        m_particles.push_back({{static_cast<float>(c), static_cast<float>(r)}, {std::cos(angle) * speed, std::sin(angle) * speed}, life, life, color, scale});
+    }
+}
+
+void Renderer::addSparkAnimation(int r, int c) {
+    for (int i = 0; i < 30; ++i) {
+        float angle = (rand() % 360) * 3.14159f / 180.f;
+        float speed = 0.3f + (rand() % 15) / 10.f;
+        float life = 0.3f + (rand() % 10) / 20.f;
+        float scale = 0.6f + (rand() % 5) / 10.f;
+        sf::Color color = sf::Color(100, 200, 255); // Magic blue
+        m_particles.push_back({{static_cast<float>(c), static_cast<float>(r)}, {std::cos(angle) * speed, std::sin(angle) * speed}, life, life, color, scale});
+    }
+}
+
+void Renderer::drawParticles(sf::RenderWindow& window, sf::Vector2f offset, float cellSize) {
+    for (const auto& r : m_ripples) {
+        sf::CircleShape shape(r.currentRadius * cellSize);
+        shape.setOrigin({shape.getRadius(), shape.getRadius()});
+        shape.setPosition({offset.x + r.pos.x * cellSize, offset.y + r.pos.y * cellSize});
+        shape.setFillColor(sf::Color::Transparent);
+        shape.setOutlineThickness(3.f * (r.life / r.maxLife));
+        shape.setOutlineColor(sf::Color(r.color.r, r.color.g, r.color.b, static_cast<uint8_t>(255 * (r.life / r.maxLife))));
+        window.draw(shape);
+    }
+
+    for (const auto& p : m_particles) {
+        sf::CircleShape shape(cellSize * 0.2f * p.size * (p.life / p.maxLife));
+        shape.setOrigin({shape.getRadius(), shape.getRadius()});
+        shape.setPosition({offset.x + p.pos.x * cellSize, offset.y + p.pos.y * cellSize});
+        shape.setFillColor(sf::Color(p.color.r, p.color.g, p.color.b, static_cast<uint8_t>(255 * (p.life / p.maxLife))));
+        window.draw(shape);
+    }
+
+    for (const auto& anim : m_lightningStorms) {
+        float blink = (std::sin(anim.life * 60.0f) + 1.0f) * 0.5f; 
+        float scale = 1.0f + blink * 1.5f; 
+        
+        sf::CircleShape spark(cellSize * 0.5f * scale, 5); 
+        spark.setOrigin({spark.getRadius(), spark.getRadius()});
+        spark.setPosition({offset.x + anim.pos.x * cellSize, offset.y + anim.pos.y * cellSize});
+        
+        uint8_t alpha = static_cast<uint8_t>(255 * (anim.life / anim.maxLife));
+        if (static_cast<int>(anim.life * 30) % 2 == 0) {
+            spark.setFillColor(sf::Color(255, 255, 0, alpha)); 
+        } else {
+            spark.setFillColor(sf::Color(255, 255, 255, alpha)); 
+        }
+        window.draw(spark);
+        
+        sf::CircleShape innerSpark(cellSize * 0.2f * scale, 4); 
+        innerSpark.setOrigin({innerSpark.getRadius(), innerSpark.getRadius()});
+        innerSpark.setPosition({offset.x + anim.pos.x * cellSize, offset.y + anim.pos.y * cellSize});
+        innerSpark.setFillColor(sf::Color(255, 255, 255, alpha));
+        window.draw(innerSpark);
+    }
+}
+
+void Renderer::addRippleAnimation(int r, int c, sf::Color color) {
+    m_ripples.push_back({{static_cast<float>(c), static_cast<float>(r)}, 0.0f, 3.0f, 0.8f, 0.8f, color});
+}
+
+void Renderer::addLightningStormAnimation(int r, int c) {
+    m_lightningStorms.push_back({{static_cast<float>(c), static_cast<float>(r)}, 1.0f, 1.0f});
 }
 
 void Renderer::drawNotification(sf::RenderWindow& window, const std::string& textStr, sf::Vector2f centerPos) {

@@ -32,6 +32,7 @@ private:
 	// Game logic
 	void handleBoardClick(int row, int col);
 	void performMove(int row, int col);
+	void applySkill(int skillId, int playerId, const std::vector<sf::Vector2i>& targets);
 	void switchTurn();
 	void resetGame();
 	bool applyUndoMove();
@@ -83,6 +84,7 @@ private:
     // Game State
     GameState m_state = GameState::Menu;
     PlayMode m_playMode = PlayMode::LocalPvP;
+    bool m_isExperimentalMode = false;
     Cell m_currentTurn = Cell::BLACK;
     Cell m_myNetworkColor = Cell::BLACK;
     Cell m_winner = Cell::EMPTY;
@@ -94,8 +96,17 @@ private:
     std::vector<std::unique_ptr<Button>> m_gameButtons;
     std::vector<std::unique_ptr<Button>> m_replayButtons;
     std::vector<std::unique_ptr<Button>> m_lobbyButtons;
-    std::vector<std::unique_ptr<Button>> m_roomListButtons;
-    std::unique_ptr<Button> m_btnPlayAgain;
+	std::vector<std::unique_ptr<Button>> m_roomListButtons;
+	std::vector<std::unique_ptr<Button>> m_chatButtons;
+
+	struct EmojiMsg {
+		int emojiId;
+		float x, y;
+		float life;
+	};
+	std::vector<EmojiMsg> m_emojiMessages;
+
+	std::unique_ptr<Button> m_btnPlayAgain;
     std::unique_ptr<Button> m_btnUndoAccept;
     std::unique_ptr<Button> m_btnUndoReject;
     Button* m_btnToggleAIPtr = nullptr;
@@ -123,6 +134,13 @@ private:
 	// Custom Cursor
 	std::vector<sf::Texture> m_cursorTextures;
 	std::unique_ptr<sf::Sprite> m_cursorSprite;
+
+	// Skills
+	int m_skillPoints[2] = {0, 0};
+	bool m_extraTurnActive = false;
+	float m_spFlashTime[2] = {0.0f, 0.0f};
+	int m_spFlashLevel[2] = {0, 0};
+
 	int m_cursorFrame = 0;
 	float m_cursorAnimTime = 0.0f;
 	const float m_cursorAnimMaxTime = 0.1f;

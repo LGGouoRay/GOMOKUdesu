@@ -26,7 +26,8 @@ enum class PacketType : std::uint8_t {
     RestartAccept,
     GameStart,
     HostStatusUpdate,
-    SyncGameState
+    SyncGameState,
+    UseSkill
 };
 
 class Network {
@@ -71,18 +72,22 @@ public:
     void setOnRestartResponse(std::function<void(bool accepted)> callback);
     void setOnConnect(std::function<void()> callback);
     void setOnDisconnect(std::function<void()> callback);
-    void setOnGameStart(std::function<void()> callback);
+    void setOnGameStart(std::function<void(bool)> callback);
     void setOnHostStatusUpdate(std::function<void(bool)> callback);
     void setOnSyncGameState(std::function<void(const GameSaveData&)> callback);
+    void setOnUseSkill(std::function<void(int, const std::vector<sf::Vector2i>&)> callback);
+    void setOnChatMessage(std::function<void(int)> callback);
 
     void sendStonePlaced(int row, int col);
     void sendUndoRequest();
     void sendUndoResponse(bool accepted);
     void sendRestartRequest();
     void sendRestartResponse(bool accepted);
-    void sendGameStart();
+    void sendGameStart(bool isExperimental);
     void sendHostStatusUpdate(bool isSavingOrLoading);
     void sendSyncGameState(const GameSaveData& data);
+    void sendUseSkill(int skillId, const std::vector<sf::Vector2i>& targets);
+    void sendChatMessage(int emojiId);
 
 private:
     Status m_status = Status::Disconnected;
@@ -103,9 +108,11 @@ private:
     std::function<void(bool)> m_onRestartResponse;
     std::function<void()> m_onConnect;
     std::function<void()> m_onDisconnect;
-    std::function<void()> m_onGameStart;
+    std::function<void(bool)> m_onGameStart;
     std::function<void(bool)> m_onHostStatusUpdate;
     std::function<void(const GameSaveData&)> m_onSyncGameState;
+    std::function<void(int, const std::vector<sf::Vector2i>&)> m_onUseSkill;
+    std::function<void(int)> m_onChatMessage;
 
     // UDP Broadcasting
     sf::UdpSocket m_broadcastSocket;

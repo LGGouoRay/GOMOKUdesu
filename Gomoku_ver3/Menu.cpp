@@ -1,4 +1,5 @@
 ﻿#pragma execution_character_set("utf-8")
+#pragma execution_character_set("utf-8")
 #include "Menu.h"
 #include "Settings.h"
 #include <iostream>
@@ -59,27 +60,56 @@ void Menu::initMainButtons(sf::RenderWindow& window) {
 void Menu::initLocalButtons(sf::RenderWindow& window) {
     float cx = window.getSize().x / 2.f;
     float startY = 320.f;
-    float gap = 80.f;
-    sf::Vector2f size(300.f, 50.f);
+    float gap = 70.f;
+    sf::Vector2f size(350.f, 50.f);
 
-    auto btnAI = std::make_unique<Button>(m_font, "AI Opponent: ON", sf::Vector2f(cx - size.x/2, startY), size);
+    auto btnAI = std::make_unique<Button>(m_font, "AI Opponent: OFF", sf::Vector2f(cx - size.x/2, startY - gap), size);
     btnAI->setToggleMode(true);
-    btnAI->setToggled(true);
+    btnAI->setToggled(false);
     btnAI->setCallback([this]() {
         m_aiToggleBtn->setLabel(m_aiToggleBtn->isToggled() ? "AI Opponent: ON" : "AI Opponent: OFF");
     });
     m_aiToggleBtn = btnAI.get();
 
+    m_aiDiffState = 0;
+    auto btnDiff = std::make_unique<Button>(m_font, std::string(reinterpret_cast<const char*>(u8"AI: 簡單")), sf::Vector2f(cx - size.x/2, startY), size);
+    btnDiff->setCallback([this]() {
+        m_aiDiffState = (m_aiDiffState + 1) % 3;
+        if (m_aiDiffState == 0) {
+            m_aiDiffBtn->setLabel(std::string(reinterpret_cast<const char*>(u8"AI: 簡單")));
+            m_aiDiffBtn->setColors(sf::Color(60, 60, 80), sf::Color(80, 80, 110), sf::Color(40, 40, 60));
+        } else if (m_aiDiffState == 1) {
+            m_aiDiffBtn->setLabel(std::string(reinterpret_cast<const char*>(u8"AI: 普通")));
+            m_aiDiffBtn->setColors(sf::Color(50, 130, 90), sf::Color(70, 160, 110), sf::Color(30, 110, 70));
+        } else {
+            m_aiDiffBtn->setLabel(std::string(reinterpret_cast<const char*>(u8"AI: 困難 (電腦性能要求高)")));
+            m_aiDiffBtn->setColors(sf::Color(160, 50, 50), sf::Color(180, 70, 70), sf::Color(130, 30, 30));
+        }
+    });
+    m_aiDiffBtn = btnDiff.get();
+
     auto btnStart = std::make_unique<Button>(m_font, "Start Game", sf::Vector2f(cx - size.x/2, startY + gap), size);
     btnStart->setCallback([this]() { 
+        m_pendingResult.aiDifficultyLevel = m_aiDiffState;
         m_pendingResult.action = m_aiToggleBtn->isToggled() ? MenuAction::StartLocalPvAI : MenuAction::StartLocalPvP; 
+        m_pendingResult.experimentalMode = false;
     });
 
-    auto btnBack = std::make_unique<Button>(m_font, "Back", sf::Vector2f(cx - size.x/2, startY + gap * 2), size);
+    auto btnExp = std::make_unique<Button>(m_font, std::string(reinterpret_cast<const char*>(u8"實驗模式 (技能與特效)")), sf::Vector2f(cx - size.x/2, startY + gap * 2), size);
+    btnExp->setColors(sf::Color(200, 200, 0), sf::Color(255, 255, 0), sf::Color(150, 150, 0));
+    btnExp->setCallback([this]() { 
+        m_pendingResult.aiDifficultyLevel = m_aiDiffState;
+        m_pendingResult.action = MenuAction::StartExperimental;
+        m_pendingResult.experimentalMode = true;
+    });
+
+    auto btnBack = std::make_unique<Button>(m_font, "Back", sf::Vector2f(cx - size.x/2, startY + gap * 3), size);
     btnBack->setCallback([this]() { m_state = MenuState::Main; });
 
     m_localButtons.push_back(std::move(btnAI));
+    m_localButtons.push_back(std::move(btnDiff));
     m_localButtons.push_back(std::move(btnStart));
+    m_localButtons.push_back(std::move(btnExp));
     m_localButtons.push_back(std::move(btnBack));
 }
 
@@ -372,17 +402,17 @@ void Menu::draw(sf::RenderWindow& window) {
     } else if (m_state == MenuState::ManualConnect) {
         // Draw manual connect UI with better layout
         float cx = window.getSize().x / 2.f;
-        float startY = 260.f;
+        float startY = 280.f;
         float labelY = startY;
         float inputBoxY = labelY + 45.f;
-        float gap = 100.f;
+        float gap = 90.f;
 
         // Title
         sf::Text titleText(m_font, "Connect to Server", 40);
         titleText.setFillColor(sf::Color(200, 200, 255));
         auto tBounds = titleText.getLocalBounds();
         titleText.setOrigin({tBounds.position.x + tBounds.size.x / 2.f, 0});
-        titleText.setPosition({cx, 180.f});
+        titleText.setPosition({cx, 220.f});
         window.draw(titleText);
 
         // IP Address section
@@ -421,13 +451,23 @@ void Menu::draw(sf::RenderWindow& window) {
         portText.setPosition({cx - 240.f, inputBoxY + gap + 12.f});
         window.draw(portText);
 
+        // "OR" separator
+        sf::Text orText(m_font, "- OR -", 20);
+        orText.setFillColor(sf::Color(150, 150, 200));
+        auto orBounds = orText.getLocalBounds();
+        orText.setOrigin({orBounds.position.x + orBounds.size.x / 2.f, 0});
+        orText.setPosition({cx, inputBoxY + gap + 60.f});
+        window.draw(orText);
+
+        float codeStartY = inputBoxY + gap * 2 + 10.f;
+
         sf::Text codeLabel(m_font, "Room Code:", 28);
         codeLabel.setFillColor(sf::Color(180, 180, 255));
-        codeLabel.setPosition({cx - 350.f, labelY + gap * 2});
+        codeLabel.setPosition({cx - 350.f, labelY + gap * 2 + 10.f});
         window.draw(codeLabel);
 
         sf::RectangleShape codeBox(sf::Vector2f(500.f, 50.f));
-        codeBox.setPosition({cx - 250.f, inputBoxY + gap * 2});
+        codeBox.setPosition({cx - 250.f, codeStartY});
         codeBox.setFillColor(m_manualInputField == 2 ? sf::Color(60, 80, 140) : sf::Color(40, 40, 80));
         codeBox.setOutlineColor(m_manualInputField == 2 ? sf::Color::Cyan : sf::Color(100, 100, 200));
         codeBox.setOutlineThickness(2.f);
@@ -435,13 +475,13 @@ void Menu::draw(sf::RenderWindow& window) {
 
         sf::Text codeText(m_font, m_inputRoomCode + (m_manualInputField == 2 && m_cursorBlinkTimer < m_cursorBlinkInterval ? "|" : ""), 24);
         codeText.setFillColor(sf::Color::White);
-        codeText.setPosition({cx - 240.f, inputBoxY + gap * 2 + 12.f});
+        codeText.setPosition({cx - 240.f, codeStartY + 12.f});
         window.draw(codeText);
 
         // Help text
         sf::Text helpText(m_font, "Press TAB to switch fields, BACKSPACE to delete", 16);
         helpText.setFillColor(sf::Color(120, 120, 150));
-        helpText.setPosition({cx - 250.f, inputBoxY + gap * 2 + 35.f});
+        helpText.setPosition({cx - 250.f, codeStartY + 65.f});
         window.draw(helpText);
 
         // Draw buttons
@@ -531,7 +571,9 @@ void Menu::initManualConnectUI() {
 
     auto btnConnect = std::make_unique<Button>(m_font, "Connect", sf::Vector2f(cx - size.x/2, buttonStartY), size);
     btnConnect->setCallback([this]() {
-        if (!m_inputIPAddress.empty() || !m_inputRoomCode.empty()) {
+        bool hasIpPort = (!m_inputIPAddress.empty() && !m_inputPort.empty());
+        bool hasCode = !m_inputRoomCode.empty();
+        if (hasIpPort || hasCode) {
             m_pendingResult.action = MenuAction::ConnectLAN;
             m_pendingResult.ipAddress = m_inputIPAddress;
             m_pendingResult.roomCode = m_inputRoomCode;

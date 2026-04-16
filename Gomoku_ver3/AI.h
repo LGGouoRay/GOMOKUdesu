@@ -14,6 +14,7 @@ public:
     AI(Cell aiColor);
 
     void setColor(Cell aiColor);
+    Cell getColor() const { return m_aiColor; }
     void setDepth(int depth);
     Move calculateBestMove(const Board& board);
 

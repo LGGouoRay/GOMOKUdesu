@@ -9,7 +9,7 @@
 #include <string>
 
 enum class MenuState { Main, LocalPlay, Multiplayer, Settings, RoomList, ManualConnect };
-enum class MenuAction { None, StartLocalPvP, StartLocalPvAI, HostLAN, ConnectLAN, JoinRoom, Quit };
+enum class MenuAction { None, StartLocalPvP, StartLocalPvAI, StartExperimental, HostLAN, ConnectLAN, JoinRoom, Quit };
 
 struct MenuResult {
     MenuAction action = MenuAction::None;
@@ -17,6 +17,8 @@ struct MenuResult {
     unsigned short port = 55001;
     std::string roomCode = "";
     bool hostPrivate = false;
+    int aiDifficultyLevel = 0; // 0=Easy, 1=Normal, 2=Hard
+    bool experimentalMode = false;
 };
 
 class Menu {
@@ -53,6 +55,8 @@ private:
 
     Button* m_backButton;
     Button* m_aiToggleBtn;
+    Button* m_aiDiffBtn;
+    int m_aiDiffState = 0; // 0=Easy, 1=Normal, 2=Hard
 
     // Manual Connect UI
     std::string m_inputIPAddress;

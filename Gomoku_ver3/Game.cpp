@@ -1,4 +1,5 @@
-ï»¿#include "Game.h"
+#include "Game.h"
+#pragma execution_character_set("utf-8")
 #include "Settings.h"
 #include <iostream>
 #include <filesystem>
@@ -30,32 +31,34 @@ std::size_t computeRoomListHash(const std::vector<Network::RoomInfo>& rooms) {
 }
 
 // ============================================================
-//  Game.cpp â€” éŠæˆ²ä¸»é‚è¼¯å¯¦ä½œ
+//  Game.cpp ¡X ¹CÀ¸¥DÅŞ¿è¹ê§@
 // ============================================================
 
 Game::Game()
     : m_window(sf::VideoMode({ 1200, 900 }), "Gomoku_ver3", sf::Style::Default),
+    m_renderer("assets"),
     m_menu(m_window, m_renderer.getFont()),
     m_ai(Cell::WHITE)
 {
     m_window.setFramerateLimit(60);
-    // è¼‰å…¥è³‡æº (æ­¤è™•è·¯å¾‘ç‚ºé è¨­)
-    m_renderer.loadAssets("assets");
     m_soundMgr.loadAll("assets");
 
-    m_menu.~Menu(); 
-    new (&m_menu) Menu(m_window, m_renderer.getFont());
-
-    // ç¶²è·¯äº‹ä»¶è¨­å®š
+    // ºô¸ô¨Æ¥ó³]©w
     m_network.setOnStonePlaced([this](int r, int c) {
         performMove(r, c);
         });
 
-    m_network.setOnGameStart([this]() {
+    m_network.setOnGameStart([this](bool isExperimental) {
         if (m_playMode == PlayMode::NetworkHost || m_playMode == PlayMode::NetworkClient) {
+            m_isExperimentalMode = isExperimental;
             resetGame();
             startTransition(GameState::Playing);
         }
+    });
+
+    m_network.setOnUseSkill([this](int skillId, const std::vector<sf::Vector2i>& targets) {
+        int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+        applySkill(skillId, id, targets);
     });
 
     m_network.setOnUndoRequest([this]() {
@@ -78,6 +81,13 @@ Game::Game()
     m_network.setOnDisconnect([this]() {
         m_pendingUndoRequest = false;
         m_hostIsSavingLoading = false;
+        if (m_state != GameState::Menu) {
+            m_connectErrorMessage = L"¹ï¤âÂ÷½u";
+            m_connectErrorTimer = 3.0f;
+            // Removed m_network.disconnect() to avoid infinite recursion
+            m_menu.reset();
+            startTransition(GameState::Menu);
+        }
     });
 
     m_network.setOnHostStatusUpdate([this](bool isSavingOrLoading) {
@@ -101,7 +111,17 @@ Game::Game()
         }
     });
 
-    // è¼‰å…¥è‡ªè¨‚é¼ æ¨™ç´‹ç†
+    m_network.setOnChatMessage([this](int emojiId) {
+        if (isNetworkMode()) {
+            for (auto& msg : m_emojiMessages) {
+                msg.y -= 40.f; // ¦¬¨ì·s°T®§®É¡A§âÂÂªº¦Û°Ê©¹¤W±À
+            }
+            m_emojiMessages.push_back({emojiId, 900.f, 60.f, 3.0f});
+            m_soundMgr.play(SoundEffect::Click); // Or whatever sound
+        }
+    });
+
+    // ¸ü¤J¦Û­q¹«¼Ğ¯¾²z
     for (int i = 0; i < 6; ++i) {
         sf::Texture texture;
         std::string path = "assets/cursor/frame_" + std::to_string(i) + ".png";
@@ -110,7 +130,7 @@ Game::Game()
         }
     }
 
-    // åˆå§‹åŒ–é¼ æ¨™Sprite
+    // ªì©l¤Æ¹«¼ĞSprite
     if (!m_cursorTextures.empty()) {
         m_cursorSprite = std::make_unique<sf::Sprite>(m_cursorTextures[0]);
     }
@@ -120,7 +140,7 @@ Game::Game()
     initLobbyUI();
     initSaveLoadUI();
 
-    // æ ¹æ“šè¨­å®šéš±è—æˆ–é¡¯ç¤ºé è¨­é¼ æ¨™
+    // ®Ú¾Ú³]©wÁôÂÃ©ÎÅã¥Ü¹w³]¹«¼Ğ
     m_cursorVisibilityApplied = !getGameSettings().customCursorEnabled;
     m_window.setMouseCursorVisible(m_cursorVisibilityApplied);
 
@@ -248,7 +268,15 @@ bool Game::canUseSaveLoad() const {
 }
 
 bool Game::isGameButtonVisible(std::size_t index) const {
-    (void)index;
+    if (m_isExperimentalMode) {
+        if (index == kGameBtnUndo || index == kGameBtnSave || index == kGameBtnLoad || index == 5) { // 5 is Replay
+            return false;
+        }
+    } else {
+        if (index == 6 || index == 7 || index == 8) { // Skill buttons
+            return false;
+        }
+    }
     return true;
 }
 
@@ -262,6 +290,31 @@ void Game::updateGameButtonStates() {
     if (m_gameButtons.size() > kGameBtnLoad) {
         m_gameButtons[kGameBtnLoad]->setEnabled(canUseSaveLoad());
     }
+
+    if (m_isExperimentalMode) {
+        int idToDisplay = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+        if (isNetworkMode()) {
+            idToDisplay = (m_myNetworkColor == Cell::BLACK) ? 0 : 1;
+        }
+
+        bool canCast = (!isNetworkMode() || m_currentTurn == m_myNetworkColor) && m_board.getMoveCount() > 0;
+
+        if (m_gameButtons.size() > 6 && m_gameButtons[6]) {
+            bool ready = (m_skillPoints[idToDisplay] >= 10);
+            m_gameButtons[6]->setLabel(ready ? "Meteor Strike(RDY)" : "Meteor Strike(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/10)");
+            m_gameButtons[6]->setGlowingEffect(ready && canCast, sf::Color(255, 100, 100), Button::GlowEffect::Particles);
+        }
+        if (m_gameButtons.size() > 7 && m_gameButtons[7]) {
+            bool ready = (m_skillPoints[idToDisplay] >= 8);
+            m_gameButtons[7]->setLabel(ready ? "Lightning Strike(RDY)" : "Lightning Strike(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/8)");
+            m_gameButtons[7]->setGlowingEffect(ready && canCast, sf::Color(200, 100, 255), Button::GlowEffect::Lightning);
+        }
+        if (m_gameButtons.size() > 8 && m_gameButtons[8]) {
+            bool ready = (m_skillPoints[idToDisplay] >= 15);
+            m_gameButtons[8]->setLabel(ready ? "Lightning Storm(RDY)" : "Lightning Storm(SP:" + std::to_string(m_skillPoints[idToDisplay]) + "/15)");
+            m_gameButtons[8]->setGlowingEffect(ready && canCast, sf::Color(255, 200, 100), Button::GlowEffect::Storm);
+        }
+    }
 }
 
 bool Game::applyUndoMove() {
@@ -271,6 +324,21 @@ bool Game::applyUndoMove() {
 
     m_currentTurn = (m_board.getMoveCount() % 2 == 0) ? Cell::BLACK : Cell::WHITE;
     m_timer.reset();
+
+    int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+    if (m_skillPoints[id] > 0) {
+        m_skillPoints[id]--;
+    }
+
+    if (m_gameButtons.size() > 6 && m_gameButtons[6]) {
+        m_gameButtons[6]->setLabel(m_skillPoints[id] >= 10 ? "Meteor Strike(RDY)" : "Meteor Strike(SP:" + std::to_string(m_skillPoints[id]) + "/10)");
+    }
+    if (m_gameButtons.size() > 7 && m_gameButtons[7]) {
+        m_gameButtons[7]->setLabel(m_skillPoints[id] >= 8 ? "Lightning Strike(RDY)" : "Lightning Strike(SP:" + std::to_string(m_skillPoints[id]) + "/8)");
+    }
+    if (m_gameButtons.size() > 8 && m_gameButtons[8]) {
+        m_gameButtons[8]->setLabel(m_skillPoints[id] >= 15 ? "Lightning Storm(RDY)" : "Lightning Storm(SP:" + std::to_string(m_skillPoints[id]) + "/15)");
+    }
 
     if (m_state == GameState::GameOver) {
         m_state = GameState::Playing;
@@ -290,28 +358,53 @@ void Game::initLobbyUI() {
     float cx = m_window.getSize().x / 2.f;
     float startY = 500.f;
     float gap = 80.f;
-    sf::Vector2f size(200.f, 50.f);
+    sf::Vector2f size(250.f, 50.f);
 
-    auto btnStart = std::make_unique<Button>(m_renderer.getFont(), "Start Game", sf::Vector2f(cx - size.x/2, startY), size);
-    btnStart->setCallback([this]() {
-        if (m_playMode == PlayMode::NetworkHost && m_network.getStatus() == Network::Status::Connected) {
-            m_network.sendGameStart();
-            resetGame();
-            m_state = GameState::Playing;
+    if (m_playMode == PlayMode::NetworkHost) {
+        auto btnStartNormal = std::make_unique<Button>(m_renderer.getFont(), "Normal Mode", sf::Vector2f(cx - size.x - 20.f, startY), size);
+        btnStartNormal->setCallback([this]() {
+            if (m_network.getStatus() == Network::Status::Connected) {
+                m_isExperimentalMode = false;
+                m_network.sendGameStart(false);
+                resetGame();
+                m_state = GameState::Playing;
+                m_soundMgr.play(SoundEffect::Click);
+            }
+        });
+
+        auto btnStartExp = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"¹êÅç¼Ò¦¡")), sf::Vector2f(cx + 20.f, startY), size);
+        btnStartExp->setColors(sf::Color(200, 180, 50), sf::Color(255, 230, 100), sf::Color(150, 130, 30));
+        btnStartExp->setCallback([this]() {
+            if (m_network.getStatus() == Network::Status::Connected) {
+                m_isExperimentalMode = true;
+                m_network.sendGameStart(true);
+                resetGame();
+                m_state = GameState::Playing;
+                m_soundMgr.play(SoundEffect::Click);
+            }
+        });
+
+        m_lobbyButtons.push_back(std::move(btnStartNormal));
+        m_lobbyButtons.push_back(std::move(btnStartExp));
+
+        auto btnLeave = std::make_unique<Button>(m_renderer.getFont(), "Leave", sf::Vector2f(cx - 100.f, startY + gap), sf::Vector2f(200.f, 50.f));
+        btnLeave->setCallback([this]() {
+            m_network.disconnect();
+            m_menu.reset();
+            startTransition(GameState::Menu);
             m_soundMgr.play(SoundEffect::Click);
-        }
-    });
-
-    auto btnLeave = std::make_unique<Button>(m_renderer.getFont(), "Leave", sf::Vector2f(cx - size.x/2, startY + gap), size);
-    btnLeave->setCallback([this]() {
-        m_network.disconnect();
-        m_menu.reset();
-        startTransition(GameState::Menu);
-        m_soundMgr.play(SoundEffect::Click);
-    });
-
-    m_lobbyButtons.push_back(std::move(btnStart));
-    m_lobbyButtons.push_back(std::move(btnLeave));
+        });
+        m_lobbyButtons.push_back(std::move(btnLeave));
+    } else {
+        auto btnLeave = std::make_unique<Button>(m_renderer.getFont(), "Leave", sf::Vector2f(cx - 100.f, startY), sf::Vector2f(200.f, 50.f));
+        btnLeave->setCallback([this]() {
+            m_network.disconnect();
+            m_menu.reset();
+            startTransition(GameState::Menu);
+            m_soundMgr.play(SoundEffect::Click);
+        });
+        m_lobbyButtons.push_back(std::move(btnLeave));
+    }
 }
 
 void Game::initRoomListUI() {
@@ -356,12 +449,13 @@ void Game::updateConnecting(float dt) {
         m_playMode = PlayMode::NetworkClient;
         m_myNetworkColor = Cell::WHITE;
         m_clientConnected = true;
+        initLobbyUI();
         startTransition(GameState::Lobby);
         return;
     }
 
     m_state = GameState::Menu;
-    m_connectErrorMessage = L"åŠ å…¥å¤±æ•—ï¼Œè«‹ç¢ºèªæ˜¯å¦æ­£ç¢ºåœ°æŒ‰ä¸‹ç¢ºèªæŒ‰éˆ•";
+    m_connectErrorMessage = L"¥[¤J¥¢±Ñ¡A½Ğ½T»{¬O§_¥¿½T¦a«ö¤U½T»{«ö¶s";
     m_connectErrorTimer = 3.0f;
 }
 
@@ -381,7 +475,7 @@ void Game::initGameUI() {
         }
         if (applyUndoMove()) {
             if (m_playMode == PlayMode::LocalPvAI) {
-                applyUndoMove(); // é€€å…©æ­¥
+                applyUndoMove(); // °h¨â¨B
             }
             m_soundMgr.play(SoundEffect::Click);
         }
@@ -439,6 +533,111 @@ void Game::initGameUI() {
     m_gameButtons.push_back(std::move(btnSave));
     m_gameButtons.push_back(std::move(btnLoad));
     m_gameButtons.push_back(std::move(btnReplay));
+
+    sf::Vector2f skillSize(250.f, 60.f);
+
+    auto btnSkill1 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Meteor Strike(SP:0/10)")), sf::Vector2f(uiX, startY + 3 * gap), skillSize, 18);
+    btnSkill1->setColors(sf::Color(200, 50, 50), sf::Color(255, 100, 100), sf::Color(150, 30, 30));
+    btnSkill1->setCallback([this]() {
+        if (!m_isExperimentalMode) return;
+        int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+        if (m_skillPoints[id] < 10) return;
+        if (m_board.getMoveCount() == 0) return;
+        if (isNetworkMode() && m_currentTurn != m_myNetworkColor) return;
+
+        std::vector<sf::Vector2i> occupied;
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                if (m_board.getCell(r, c) != Cell::EMPTY) occupied.push_back({c, r});
+            }
+        }
+        std::vector<sf::Vector2i> targets;
+        if (!occupied.empty()) {
+            targets.push_back(occupied[rand() % occupied.size()]);
+        }
+
+        if (isNetworkMode()) m_network.sendUseSkill(1, targets);
+        applySkill(1, id, targets);
+    });
+    m_gameButtons.push_back(std::move(btnSkill1));
+
+    auto btnSkill2 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Lightning Strike(SP:0/8)")), sf::Vector2f(uiX, startY + 4 * gap), skillSize, 18);
+    btnSkill2->setColors(sf::Color(150, 50, 200), sf::Color(200, 100, 255), sf::Color(100, 30, 150));
+    btnSkill2->setCallback([this]() {
+        if (!m_isExperimentalMode) return;
+        int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+        if (m_skillPoints[id] < 8) return;
+        if (isNetworkMode() && m_currentTurn != m_myNetworkColor) return;
+
+        std::vector<sf::Vector2i> oppStones;
+        Cell oppColor = (m_currentTurn == Cell::BLACK) ? Cell::WHITE : Cell::BLACK;
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                if (m_board.getCell(r, c) == oppColor) oppStones.push_back({c, r});
+            }
+        }
+
+        std::vector<sf::Vector2i> targets;
+        int destroyed = 0;
+        while (!oppStones.empty() && destroyed < 5) {
+            int rIdx = rand() % oppStones.size();
+            targets.push_back(oppStones[rIdx]);
+            oppStones.erase(oppStones.begin() + rIdx);
+            destroyed++;
+        }
+
+        if (isNetworkMode()) m_network.sendUseSkill(2, targets);
+        applySkill(2, id, targets);
+    });
+    m_gameButtons.push_back(std::move(btnSkill2));
+
+    auto btnSkill3 = std::make_unique<Button>(m_renderer.getFont(), std::string(reinterpret_cast<const char*>(u8"Lightning Storm(SP:0/15)")), sf::Vector2f(uiX, startY + 5 * gap), skillSize, 18);
+    btnSkill3->setColors(sf::Color(200, 150, 50), sf::Color(255, 200, 100), sf::Color(150, 100, 30));
+    btnSkill3->setCallback([this]() {
+        if (!m_isExperimentalMode) return;
+        int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+        if (m_skillPoints[id] < 15) return;
+        if (isNetworkMode() && m_currentTurn != m_myNetworkColor) return;
+
+        std::vector<sf::Vector2i> oppStones;
+        Cell oppColor = (m_currentTurn == Cell::BLACK) ? Cell::WHITE : Cell::BLACK;
+        for (int r = 0; r < BOARD_SIZE; ++r) {
+            for (int c = 0; c < BOARD_SIZE; ++c) {
+                if (m_board.getCell(r, c) == oppColor) oppStones.push_back({c, r});
+            }
+        }
+        std::vector<sf::Vector2i> targets;
+        if (!oppStones.empty()) {
+            targets.push_back(oppStones[rand() % oppStones.size()]);
+        }
+
+        if (isNetworkMode()) m_network.sendUseSkill(3, targets);
+        applySkill(3, id, targets);
+    });
+    m_gameButtons.push_back(std::move(btnSkill3));
+
+    // Chat buttons (Emojis)
+    float chatStartX = 100.f;
+    float chatStartY = 850.f;
+    float chatBtnW = 60.f;
+    float chatBtnH = 40.f;
+    float chatGap = 70.f;
+    const char* emojis[4] = {"(^_^)", "QAQ", ">_<", "Orz"};
+    for (int i = 0; i < 4; ++i) {
+        auto btnEmoji = std::make_unique<Button>(m_renderer.getFont(), emojis[i], sf::Vector2f(chatStartX + i * chatGap, chatStartY), sf::Vector2f(chatBtnW, chatBtnH), 16);
+        int emojiId = i;
+        btnEmoji->setCallback([this, emojiId]() {
+            if (isNetworkMode()) {
+                m_network.sendChatMessage(emojiId);
+                for (auto& msg : m_emojiMessages) {
+                    msg.y -= 40.f; // ¶Ç°e·s°T®§®É¡A§âÂÂªº¦Û°Ê©¹¤W±À
+                }
+                m_emojiMessages.push_back({emojiId, 900.f, 60.f, 3.0f});
+                m_soundMgr.play(SoundEffect::Click);
+            }
+        });
+        m_chatButtons.push_back(std::move(btnEmoji));
+    }
 }
 
 void Game::run() {
@@ -490,7 +689,7 @@ void Game::processEvents() {
             }
         }
         else if (m_state == GameState::Playing || m_state == GameState::GameOver || m_state == GameState::ReplayMode || m_state == GameState::Lobby) {
-            // UI æŒ‰éˆ•
+            // UI «ö¶s
             if (auto* press = event->getIf<sf::Event::MouseButtonPressed>()) {
                 if (press->button == sf::Mouse::Button::Left) {
                     sf::Vector2f mousePos(press->position.x, press->position.y);
@@ -523,6 +722,15 @@ void Game::processEvents() {
                             }
                         }
                     } else {
+                        if (isNetworkMode()) {
+                            for (auto& btn : m_chatButtons) {
+                                if (btn->isClicked(mousePos)) {
+                                    btn->triggerCallback();
+                                    goto EventHandled;
+                                }
+                            }
+                        }
+
                         if (m_state == GameState::GameOver && m_btnPlayAgain) {
                             if (m_btnPlayAgain->isClicked(mousePos)) {
                                 m_btnPlayAgain->triggerCallback();
@@ -540,7 +748,7 @@ void Game::processEvents() {
                         }
                     }
 
-                    // è™•ç†æ£‹ç›¤é»æ“Š
+                    // ³B²z´Ñ½LÂIÀ»
                     if (m_state == GameState::Playing) {
                         float boardEndX = m_boardOffset.x + (BOARD_SIZE - 1) * m_cellSize;
                         float boardEndY = m_boardOffset.y + (BOARD_SIZE - 1) * m_cellSize;
@@ -555,18 +763,18 @@ void Game::processEvents() {
                     }
                 }
             }
-        EventHandled:;
         }
+    EventHandled:;
     }
 }
 
 void Game::handleBoardClick(int row, int col) {
     if (m_state != GameState::Playing) return;
 
-    // AI æ¨¡å¼ä¸­ï¼Œè‹¥æ˜¯ AI å›åˆå‰‡å¿½ç•¥é»æ“Š
+    // AI ¼Ò¦¡¤¤¡A­Y¬O AI ¦^¦X«h©¿²¤ÂIÀ»
     if (m_playMode == PlayMode::LocalPvAI && m_currentTurn != Cell::BLACK) return;
 
-    // ç¶²è·¯æ¨¡å¼ä¸­ï¼Œè‹¥ä¸æ˜¯æˆ‘çš„å›åˆå‰‡å¿½ç•¥é»æ“Š
+    // ºô¸ô¼Ò¦¡¤¤¡A­Y¤£¬O§Úªº¦^¦X«h©¿²¤ÂIÀ»
     if ((m_playMode == PlayMode::NetworkHost || m_playMode == PlayMode::NetworkClient) && m_currentTurn != m_myNetworkColor) return;
 
     if (m_board.getCell(row, col) != Cell::EMPTY) {
@@ -576,7 +784,7 @@ void Game::handleBoardClick(int row, int col) {
 
     performMove(row, col);
 
-    // å¦‚æœæ˜¯ç¶²è·¯å°æ‰“ï¼Œå‚³é€å°åŒ…
+    // ¦pªG¬Oºô¸ô¹ï¥´¡A¶Ç°e«Ê¥]
     if (m_playMode == PlayMode::NetworkHost || m_playMode == PlayMode::NetworkClient) {
         m_network.sendStonePlaced(row, col);
     }
@@ -585,6 +793,32 @@ void Game::handleBoardClick(int row, int col) {
 void Game::performMove(int row, int col) {
     if (m_board.placeStone(row, col, m_currentTurn)) {
         m_renderer.addStoneAnimation(row, col);
+
+        if (m_isExperimentalMode) {
+            sf::Color rippleColor = (m_currentTurn == Cell::BLACK) ? sf::Color(50, 50, 50) : sf::Color(200, 200, 200);
+            m_renderer.addRippleAnimation(row, col, rippleColor);
+
+            int id = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+            int r = rand() % 100;
+            int spGain = 1;
+            int flashLevel = 0;
+            if (r < 70) {
+                spGain = 1;
+                flashLevel = 0;
+            } else if (r < 95) {
+                spGain = 2;
+                flashLevel = 1;
+            } else {
+                spGain = 3;
+                flashLevel = 2;
+            }
+            m_skillPoints[id] += spGain;
+            if (flashLevel > 0) {
+                m_spFlashLevel[id] = flashLevel;
+                m_spFlashTime[id] = 1.0f;
+            }
+        }
+
         m_soundMgr.play(SoundEffect::PlaceStone);
 
         switchTurn();
@@ -595,18 +829,70 @@ void Game::switchTurn() {
     m_winner = m_board.checkWin();
     if (m_winner != Cell::EMPTY) {
         m_state = GameState::GameOver;
-        m_soundMgr.play(SoundEffect::Win); // ç°¡åŒ–ï¼šä¸åˆ†è¼¸è´éƒ½æ’­ Win
+        m_soundMgr.play(SoundEffect::Win); // Â²¤Æ¡G¤£¤À¿éÄ¹³£¼½ Win
         return;
     }
 
     if (m_board.isFull()) {
         m_state = GameState::GameOver;
-        m_winner = Cell::EMPTY; // å¹³æ‰‹
+        m_winner = Cell::EMPTY; // ¥­¤â
+        return;
+    }
+
+    if (m_extraTurnActive) {
+        m_extraTurnActive = false;
+        m_timer.reset();
         return;
     }
 
     m_currentTurn = (m_currentTurn == Cell::BLACK) ? Cell::WHITE : Cell::BLACK;
     m_timer.reset();
+}
+
+void Game::applySkill(int skillId, int playerId, const std::vector<sf::Vector2i>& targets) {
+    if (skillId == 1) {
+        m_soundMgr.play(SoundEffect::Click); // Add suitable sound effect
+        if (!targets.empty()) {
+            auto center = targets[0];
+            for (int r = center.y - 2; r <= center.y + 2; ++r) {
+                for (int c = center.x - 2; c <= center.x + 2; ++c) {
+                    if (m_board.removeStone(r, c)) {
+                        m_renderer.addFireAnimation(r, c);
+                    }
+                }
+            }
+        }
+        if (m_state == GameState::GameOver) {
+            m_state = GameState::Playing;
+            m_winner = Cell::EMPTY;
+        }
+        m_skillPoints[playerId] -= 10;
+        switchTurn();
+    } else if (skillId == 2) {
+        m_soundMgr.play(SoundEffect::Start);
+        for (const auto& target : targets) {
+            if (m_board.removeStone(target.y, target.x)) {
+                m_renderer.addLightningStormAnimation(target.y, target.x);
+            }
+        }
+        m_skillPoints[playerId] -= 8;
+        switchTurn();
+    } else if (skillId == 3) {
+        m_soundMgr.play(SoundEffect::Start);
+        if (!targets.empty()) {
+            auto target = targets[0];
+            for (int i = 0; i < BOARD_SIZE; ++i) {
+                if (m_board.removeStone(target.y, i)) {
+                    m_renderer.addSparkAnimation(target.y, i);
+                }
+                if (m_board.removeStone(i, target.x)) {
+                    m_renderer.addSparkAnimation(i, target.x);
+                }
+            }
+        }
+        m_skillPoints[playerId] -= 15;
+        switchTurn();
+    }
 }
 
 void Game::resetGame() {
@@ -618,6 +904,12 @@ void Game::resetGame() {
     m_timer.setEnabled(getGameSettings().timerEnabled);
     m_timer.setTimeLimit(getGameSettings().timerLimit);
     m_timer.reset();
+
+    m_skillPoints[0] = 0; m_skillPoints[1] = 0;
+    m_spFlashTime[0] = 0.0f; m_spFlashTime[1] = 0.0f;
+    m_spFlashLevel[0] = 0; m_spFlashLevel[1] = 0;
+    m_extraTurnActive = false;
+
     m_soundMgr.play(SoundEffect::Start);
 }
 
@@ -652,8 +944,8 @@ void Game::initSaveLoadUI() {
                 data.undoEnabled = getGameSettings().undoEnabled;
                 data.aiEnabled = (m_playMode == PlayMode::LocalPvAI);
                 data.moveHistory = m_board.getMoveHistory();
-                for (int r = 0; r < BOARD_SIZE; ++r) {
-                    for (int c = 0; c < BOARD_SIZE; ++c) {
+                for (int r = 0; r < BOARD_SIZE; r++) {
+                    for (int c = 0; c < BOARD_SIZE; c++) {
                         data.grid[r][c] = static_cast<int>(m_board.getCell(r, c));
                     }
                 }
@@ -719,7 +1011,7 @@ void Game::initSaveLoadUI() {
 
     if (!m_isSaving && saveFiles.empty()) {
         auto noFileBtn = std::make_unique<Button>(m_renderer.getFont(), "No save files found", sf::Vector2f(startX, startY), sf::Vector2f(btnWidth, btnHeight));
-        noFileBtn->setCallback([]() {});
+        noFileBtn->setCallback([](){});
         m_saveLoadButtons.push_back(std::move(noFileBtn));
         rowIndex = 1;
     }
@@ -744,7 +1036,7 @@ void Game::update(float dt) {
         }
     }
 
-    // æ›´æ–°è‡ªè¨‚é¼ æ¨™
+    // §ó·s¦Û­q¹«¼Ğ
     if (getGameSettings().customCursorEnabled && !m_cursorTextures.empty()) {
         m_cursorAnimTime += dt;
         if (m_cursorAnimTime >= m_cursorAnimMaxTime) {
@@ -755,7 +1047,7 @@ void Game::update(float dt) {
             }
         }
 
-        // æ›´æ–°é¼ æ¨™ä½ç½®
+        // §ó·s¹«¼Ğ¦ì¸m
         if (m_cursorSprite) {
             auto mousePos = sf::Mouse::getPosition(m_window);
             if (mousePos != m_lastMousePos) {
@@ -765,7 +1057,7 @@ void Game::update(float dt) {
         }
     }
 
-    // æ ¹æ“šè¨­å®šæ›´æ–°é¼ æ¨™å¯è¦‹æ€§ï¼ˆåƒ…åœ¨è®Šæ›´æ™‚å‘¼å«ï¼‰
+    // ®Ú¾Ú³]©w§ó·s¹«¼Ğ¥i¨£©Ê¡]¶È¦bÅÜ§ó®É©I¥s¡^>
     const bool shouldShowSystemCursor = !getGameSettings().customCursorEnabled;
     if (shouldShowSystemCursor != m_cursorVisibilityApplied) {
         m_cursorVisibilityApplied = shouldShowSystemCursor;
@@ -781,6 +1073,31 @@ void Game::update(float dt) {
     }
 
     m_renderer.updateAnimations(dt);
+
+    for (int i = 0; i < 2; ++i) {
+        if (m_spFlashTime[i] > 0.0f) {
+            m_spFlashTime[i] -= dt;
+            if (m_spFlashTime[i] < 0.0f) m_spFlashTime[i] = 0.0f;
+        }
+    }
+
+    if (isNetworkMode()) {
+        auto mousePos = sf::Vector2f(sf::Mouse::getPosition(m_window));
+        for (auto& btn : m_chatButtons) {
+            btn->update(mousePos, dt);
+        }
+    }
+
+    auto it = m_emojiMessages.begin();
+    while (it != m_emojiMessages.end()) {
+        it->life -= dt;
+        it->y -= 15.f * dt; // §ï¬°«D±`½wºC¦a¤W¤É¡A¦]¬°¦³·s°T®§®É·|±j¨î±À°ª
+        if (it->life <= 0.f) {
+            it = m_emojiMessages.erase(it);
+        } else {
+            ++it;
+        }
+    }
 
     if (m_state == GameState::Menu) {
         if (m_menu.isRoomListState()) {
@@ -808,14 +1125,15 @@ void Game::update(float dt) {
         MenuResult res = m_menu.update(m_window);
         switch (res.action) {
         case MenuAction::StartLocalPvP:
-            m_playMode = PlayMode::LocalPvP;
-            resetGame();
-            startTransition(GameState::Playing);
-            break;
         case MenuAction::StartLocalPvAI:
-            m_playMode = PlayMode::LocalPvAI;
+        case MenuAction::StartExperimental:
+            m_playMode = (res.action == MenuAction::StartLocalPvAI) ? PlayMode::LocalPvAI : PlayMode::LocalPvP;
+            m_isExperimentalMode = res.experimentalMode;
             m_ai.setColor(Cell::WHITE);
-            m_ai.setDepth(getGameSettings().aiDepth);
+            // 0=Easy(depth=1), 1=Normal(depth=2), 2=Hard(depth=current setting)
+            if (res.aiDifficultyLevel == 0) m_ai.setDepth(1);
+            else if (res.aiDifficultyLevel == 1) m_ai.setDepth(2);
+            else m_ai.setDepth(getGameSettings().aiDepth);
             resetGame();
             startTransition(GameState::Playing);
             break;
@@ -828,6 +1146,7 @@ void Game::update(float dt) {
                 m_myNetworkColor = Cell::BLACK;
                 m_clientConnected = false;
                 m_roomName = (res.hostPrivate ? "Private Room" : "Public Room") + std::string(" (Code: ") + res.roomCode + ")";
+                initLobbyUI();
                 startTransition(GameState::Lobby);
             }
             break;
@@ -873,7 +1192,7 @@ void Game::update(float dt) {
             if (!isGameButtonVisible(i)) {
                 continue;
             }
-            m_gameButtons[i]->update(mousePos);
+            m_gameButtons[i]->update(mousePos, dt);
         }
 
         m_timer.update();
@@ -884,14 +1203,39 @@ void Game::update(float dt) {
             m_timer.reset();
         }
         else if (m_timer.isWarning() && fmod(m_timer.getRemainingSeconds(), 1.0f) < 0.1f) {
-            // æ¯ç§’é€¼é€¼ä¸€è²
+            // ¨C¬í¹G¹G¤@Án
             // m_soundMgr.play(SoundEffect::TimerWarning); 
         }
 
-        if (m_playMode == PlayMode::LocalPvAI && m_currentTurn == m_ai.calculateBestMove(m_board).color) {
-            // AI æ€è€ƒèˆ‡è½å­ (é€™è£¡ç”¨åŒæ­¥è™•ç†ï¼ŒçœŸæ­£å¯¦ä½œé€šå¸¸æœƒæ”¾ thread å…å¾—å¡é “)
-            Move aiMove = m_ai.calculateBestMove(m_board);
-            if (aiMove.row != -1) performMove(aiMove.row, aiMove.col);
+        if (m_playMode == PlayMode::LocalPvAI && m_currentTurn == m_ai.getColor()) {
+            if (m_isExperimentalMode) {
+                int aiId = (m_currentTurn == Cell::BLACK) ? 0 : 1;
+                bool skillUsed = false;
+                if (!skillUsed && m_skillPoints[aiId] >= 15 && (rand() % 100 < 30) && m_gameButtons.size() > 8 && m_gameButtons[8]) {
+                    m_gameButtons[8]->triggerCallback();
+                    skillUsed = true;
+                }
+                if (!skillUsed && m_skillPoints[aiId] >= 10 && (rand() % 100 < 30) && m_gameButtons.size() > 6 && m_gameButtons[6]) {
+                    m_gameButtons[6]->triggerCallback();
+                    skillUsed = true;
+                }
+                if (!skillUsed && m_skillPoints[aiId] >= 8 && (rand() % 100 < 30) && m_gameButtons.size() > 7 && m_gameButtons[7]) {
+                    m_gameButtons[7]->triggerCallback();
+                    skillUsed = true;
+                }
+
+                if (skillUsed) {
+                    // Turn will be ended by the skill callback, skipping stone placement this frame
+                    goto SkipAILogic;
+                }
+            }
+
+            // AI «ä¦Ò»P¸¨¤l (³o¸Ì¥Î¦P¨B³B²z¡A¯u¥¿¹ê§@³q±`·|©ñ thread §K±o¥d¹y)
+            {
+                Move aiMove = m_ai.calculateBestMove(m_board);
+                if (aiMove.row != -1) performMove(aiMove.row, aiMove.col);
+            }
+            SkipAILogic:;
         }
 
         if (m_playMode == PlayMode::NetworkHost || m_playMode == PlayMode::NetworkClient) {
@@ -910,7 +1254,7 @@ void Game::update(float dt) {
             if (!isGameButtonVisible(i)) {
                 continue;
             }
-            m_gameButtons[i]->update(mousePos);
+            m_gameButtons[i]->update(mousePos, dt);
         }
         if (m_btnPlayAgain) m_btnPlayAgain->update(mousePos);
         if (m_pendingUndoRequest && m_btnUndoAccept && m_btnUndoReject) {
@@ -934,7 +1278,7 @@ void Game::update(float dt) {
 }
 
 void Game::render() {
-    m_window.clear(sf::Color(40, 45, 55)); // æ·±è—ç°è‰²èƒŒæ™¯
+    m_window.clear(sf::Color(40, 45, 55)); // ²`ÂÅ¦Ç¦â­I´º
 
     if (m_state == GameState::Menu) {
         m_menu.draw(m_window);
@@ -956,7 +1300,7 @@ void Game::render() {
         m_window.draw(dim);
 
         if (m_renderer.isFontLoaded()) {
-            sf::Text statusText(m_renderer.getFont(), L"åŠ å…¥éŠæˆ²ä¸­...", 42);
+            sf::Text statusText(m_renderer.getFont(), L"¥[¤J¹CÀ¸¤¤...", 42);
             statusText.setFillColor(sf::Color::White);
             auto tBounds = statusText.getLocalBounds();
             statusText.setOrigin({ tBounds.position.x + tBounds.size.x / 2.f, tBounds.position.y + tBounds.size.y / 2.f });
@@ -1089,8 +1433,9 @@ void Game::render() {
         m_renderer.drawBoardGrid(m_window, m_boardOffset, m_cellSize);
         m_renderer.drawStones(m_window, m_board, m_boardOffset, m_cellSize);
         m_renderer.drawHighlights(m_window, m_board, m_boardOffset, m_cellSize);
+        m_renderer.drawParticles(m_window, m_boardOffset, m_cellSize);
 
-        // ç•« Hover é è¦½
+        // µe Hover ¹wÄı
         if (m_state == GameState::Playing && m_playMode == PlayMode::LocalPvP ||
             (m_playMode == PlayMode::LocalPvAI && m_currentTurn == Cell::BLACK) ||
             ((m_playMode == PlayMode::NetworkHost || m_playMode == PlayMode::NetworkClient) && m_currentTurn == m_myNetworkColor))
@@ -1108,7 +1453,7 @@ void Game::render() {
             }
         }
 
-        // ç•« UI (Turn text)
+        // µe UI (Turn text)
         if (m_renderer.isFontLoaded()) {
             sf::Text info(m_renderer.getFont());
             info.setCharacterSize(30);
@@ -1130,9 +1475,73 @@ void Game::render() {
                 else timerText.setFillColor(sf::Color::White);
                 m_window.draw(timerText);
             }
+            
+            if (m_isExperimentalMode) {
+                sf::Text expText(m_renderer.getFont(), "Experimental Mode", 24);
+                expText.setFillColor(sf::Color::Yellow);
+                expText.setPosition({ 900.f, 190.f });
+                m_window.draw(expText);
+
+                bool showBlackSP = true;
+                bool showWhiteSP = true;
+
+                if (isNetworkMode()) {
+                    if (m_myNetworkColor == Cell::BLACK) {
+                        showWhiteSP = false;
+                    } else if (m_myNetworkColor == Cell::WHITE) {
+                        showBlackSP = false;
+                    }
+                }
+
+                if (showBlackSP) {
+                    sf::Text bSpText(m_renderer.getFont(), "Black SP: " + std::to_string(m_skillPoints[0]), 22);
+                    bSpText.setFillColor(sf::Color(30, 30, 30)); // Black
+                    if (m_spFlashTime[0] > 0.0f) {
+                        int flashMod = static_cast<int>(m_spFlashTime[0] * 10.0f) % 2;
+                        if (flashMod == 0) {
+                            if (m_spFlashLevel[0] == 1) bSpText.setFillColor(sf::Color::Blue);
+                            else if (m_spFlashLevel[0] == 2) bSpText.setFillColor(sf::Color::Red);
+                        }
+                    }
+                    bSpText.setOutlineThickness(1.5f);
+                    bSpText.setOutlineColor(sf::Color::White);
+                    bSpText.setPosition({ 900.f, 230.f });
+                    m_window.draw(bSpText);
+                } else {
+                    sf::Text bSpText(m_renderer.getFont(), "Black SP: ???", 22);
+                    bSpText.setFillColor(sf::Color(30, 30, 30)); // Black
+                    bSpText.setOutlineThickness(1.5f);
+                    bSpText.setOutlineColor(sf::Color::White);
+                    bSpText.setPosition({ 900.f, 230.f });
+                    m_window.draw(bSpText);
+                }
+
+                if (showWhiteSP) {
+                    sf::Text wSpText(m_renderer.getFont(), "White SP: " + std::to_string(m_skillPoints[1]), 22);
+                    wSpText.setFillColor(sf::Color(240, 240, 240)); // White
+                    if (m_spFlashTime[1] > 0.0f) {
+                        int flashMod = static_cast<int>(m_spFlashTime[1] * 10.0f) % 2;
+                        if (flashMod == 0) {
+                            if (m_spFlashLevel[1] == 1) wSpText.setFillColor(sf::Color::Blue);
+                            else if (m_spFlashLevel[1] == 2) wSpText.setFillColor(sf::Color::Red);
+                        }
+                    }
+                    wSpText.setOutlineThickness(1.5f);
+                    wSpText.setOutlineColor(sf::Color(100, 100, 100)); // Darker outline for contrast
+                    wSpText.setPosition({ 900.f, 260.f });
+                    m_window.draw(wSpText);
+                } else {
+                    sf::Text wSpText(m_renderer.getFont(), "White SP: ???", 22);
+                    wSpText.setFillColor(sf::Color(240, 240, 240)); // White
+                    wSpText.setOutlineThickness(1.5f);
+                    wSpText.setOutlineColor(sf::Color(100, 100, 100)); // Darker outline for contrast
+                    wSpText.setPosition({ 900.f, 260.f });
+                    m_window.draw(wSpText);
+                }
+            }
         }
 
-        // éš¨æ™‚ç•«æŒ‰éˆ•
+        // ÀH®Éµe«ö¶s
         for (std::size_t i = 0; i < m_gameButtons.size(); ++i) {
             if (!isGameButtonVisible(i)) {
                 continue;
@@ -1140,7 +1549,27 @@ void Game::render() {
             m_gameButtons[i]->draw(m_window);
         }
 
-        // GameOver ä¸­å¤®è¦–çª—
+        if (isNetworkMode()) {
+            for (auto& btn : m_chatButtons) {
+                btn->draw(m_window);
+            }
+        }
+
+        if (m_renderer.isFontLoaded() && !m_emojiMessages.empty()) {
+            const char* emojis[4] = {"(^_^)", "QAQ", ">_<", "Orz"};
+            for (const auto& msg : m_emojiMessages) {
+                if (msg.emojiId >= 0 && msg.emojiId < 4) {
+                    sf::Text t(m_renderer.getFont(), emojis[msg.emojiId], 36);
+                    t.setPosition({msg.x, msg.y});
+                    t.setFillColor(sf::Color(255, 255, 0, static_cast<uint8_t>(std::min(msg.life * 255.f, 255.f))));
+                    t.setOutlineThickness(2.f);
+                    t.setOutlineColor(sf::Color(0, 0, 0, static_cast<uint8_t>(std::min(msg.life * 255.f, 255.f))));
+                    m_window.draw(t);
+                }
+            }
+        }
+
+        // GameOver ¤¤¥¡µøµ¡
         if (m_state == GameState::GameOver && m_renderer.isFontLoaded()) {
             sf::RectangleShape overlay(sf::Vector2f(m_window.getSize()));
             overlay.setFillColor(sf::Color(0, 0, 0, 150));
@@ -1224,7 +1653,7 @@ void Game::render() {
 
     drawTransition();
 
-    // ç¹ªè£½è‡ªè¨‚é¼ æ¨™
+    // Ã¸»s¦Û­q¹«¼Ğ
     if (getGameSettings().customCursorEnabled && m_cursorSprite) {
         m_window.draw(*m_cursorSprite);
     }
